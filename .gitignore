@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.py[cod]
+.streamlit/secrets.toml
+feedback.csv
+saved_songs/*
+!saved_songs/.gitkeep
