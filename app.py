@@ -1,14 +1,17 @@
 import streamlit as st
+import json
 import time
 import csv
 import os
 import re
 import requests
+import socket
 from datetime import datetime
+from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup
 from pypdf import PdfReader
 import docx
-from PIL import Image
+from PIL import Image, ImageOps
 from google import genai
 
 # --- 1. ページ設定とロゴ ---
@@ -25,9 +28,15 @@ translations = {
         "author_label": "制作者：",
         "login_title": "🔐 ログインして始める",
         "login_desc": "Googleアカウントでログインしてください（OAuth 2.0）。",
-        "login_demo_desc": "デモモードです。Google OAuth は設定されていないため、メールアドレス形式を入力すると試用できます。Google認証は行われません。",
+        "login_demo_desc": "デモモードです。入力済みのデモ用メールアドレスのまま進めます。Google認証は行われません。",
         "login_email_label": "デモ用メールアドレス:",
         "btn_demo_login": "デモモードで続ける",
+        "demo_sample_button": "🧪 サンプルで試す（API不要）",
+        "demo_sample_caption": "これは要約・歌詞の表示例です。音声は生成せず、APIも呼び出していません。",
+        "api_keys_title": "🔑 APIキー（このセッションのみ）",
+        "gemini_api_key_label": "Gemini APIキー（要約・歌詞用）",
+        "fal_api_key_label": "fal.ai APIキー（音楽生成用）",
+        "api_keys_privacy": "キーはアプリサーバーのセッションメモリで使い、ファイルには保存しません。各サービスにはアプリサーバー経由で送信されます。信頼できるアプリでのみ入力してください。利用料はキーの所有者に請求されます。",
         "demo_badge": "ℹ️ デモモード: Google OAuth による本人確認は無効です。",
         "btn_google_login": "Googleでログイン (Google Login)",
         "btn_logout": "ログアウト",
@@ -39,8 +48,9 @@ translations = {
         "tab_img": "🖼️ 画像",
         "tab_url": "🔗 リンク",
         "text_prompt": "暗記したい学習内容をここに貼り付けてください:",
-        "file_prompt": "ドキュメントをアップロード (PDF, DOCX, TXT)",
-        "img_prompt": "ノートや教科書の画像をアップロード (PNG, JPG)",
+        "file_prompt": "複数のドキュメントをアップロード (PDF, DOCX, TXT)",
+        "img_prompt": "ノートや教科書の画像を複数アップロード (PNG, JPG)",
+        "image_read_error": "画像を読み込めませんでした: {name}",
         "url_prompt": "学習ページのURLを貼り付けてください:",
         "prompt_section": "🎛️ 曲のスタイルとプロンプト設定 (Prompt)",
         "genre_label": "音楽ジャンル:",
@@ -54,14 +64,36 @@ translations = {
         "error_cooldown": "⏳ 連続リクエスト防止のため、あと {sec} 秒お待ちください。",
         "step2_title": "🎸 2. アプリ内でボーカル曲を生成",
         "step2_guide": "タイトル、スタイル、歌詞を使って、この画面で曲を生成します。",
-        "btn_generate_audio": "🎵 曲を生成 (ACE-Step · fal.ai)",
-        "status_generating_audio": "fal.aiで曲を生成中です。キューの状況によって少し時間がかかります...",
+        "btn_generate_audio": "🎵 選択したサービスで曲を生成",
+        "status_generating_audio": "選択したサービスで曲を生成中です...",
         "audio_ready": "✅ 曲を生成して保存しました。",
         "audio_error": "曲を生成できませんでした:",
-        "audio_quota_note": "fal.aiのACE-Step APIを使います。60秒の曲なら料金の目安は約$0.012で、実際の生成時間に応じて課金されます。生成済みのスタイルタグと歌詞のみを送信します。",
-        "fal_key_hint": "[fal.aiでAPIキーを作成](https://fal.ai/dashboard/keys)し、`.streamlit/secrets.toml` に `FAL_KEY = \"...\"` と設定してアプリを再起動してください。キーを共有しないでください。",
-        "fal_key_missing": "`.streamlit/secrets.toml` に `FAL_KEY` が設定されていません。",
+        "audio_fallback_hint": "保存済みの曲は、下のライブラリから再生できます。",
+        "audio_provider_label": "🎛️ 音楽生成サービスを選択",
+        "audio_provider_options": {
+            "fal_ace_step": "ACE-Step（fal.ai・低価格）",
+            "fal_minimax": "MiniMax Music 2.6（fal.ai）",
+            "fal_mureka_v8": "Mureka V8（fal.ai・歌詞を指定）",
+            "fal_lyria_35": "Google Lyria 3.5（fal.ai・フル曲）",
+            "local_acestep": "ACE-Step（自分のPC・ローカルAPI）"
+        },
+        "audio_provider_notes": {
+            "fal_ace_step": "長所：fal.aiで手軽に使え、現在約$0.0002/秒（60秒で約$0.012）。短所：歌声の明瞭さや歌詞の再現は曲によって差があります。FAL_KEYとクレジットが必要で、他のfal.aiモデルと残高を共有します。",
+            "fal_minimax": "長所：歌詞専用入力とスタイル指定で、歌入りの完成曲を生成。短所：1曲$0.15でACE-Stepより高く、歌詞は最大3,500文字。ベトナム語の発音は保証されません。FAL_KEYとクレジットが必要です。",
+            "fal_mureka_v8": "長所：歌詞を専用入力欄で指定でき、最大5,000文字。短所：ベトナム語は公式対応言語一覧にありません。歌詞を入力した場合は現在$0.045/曲です。FAL_KEYとクレジットが必要で、共有アプリでは設定アカウントに請求されます。",
+            "fal_lyria_35": "長所：数分の構成付きフル曲を生成し、日本語に対応。短所：歌詞をプロンプトに含める方式なので、歌詞が完全一致する保証はありません。ベトナム語は公式対応言語一覧にありません。現在$0.10/回。FAL_KEYとクレジットが必要で、共有アプリでは設定アカウントに請求されます。",
+            "local_acestep": "長所：APIの従量料金なしで自分のPC上に生成できます。短所：ACE-Step 1.5 APIサーバーの導入が必要で、目安はVRAM 4GB以上（LM使用時6GB以上）と約10GBの空き容量です。PC性能、電気代、設定作業が必要で、歌声の明瞭さは保証されません。クラウドアプリから利用する場合は別途公開接続が必要です。"
+        },
+        "audio_quota_note": "タイトル、音楽スタイル、歌詞を音楽生成サービスに送信します。元の学習資料は送信しません。料金・待ち時間・必要な機器を確認して選んでください。",
+        "vietnamese_vocal_warning": "⚠️ ベトナム語の歌詞は、モデルや歌詞によって発音が不明瞭になる場合があります。聞き取りやすさを重視する場合は、別のサービスも試してください。",
+        "fal_key_hint": "左側のAPIキー入力欄に自分のキーを入力してください。ローカル版では `.streamlit/secrets.toml` にも設定できます。fal.aiの利用料はキーの所有者に請求されます。",
+        "fal_key_missing": "左側のAPIキー入力欄にfal.aiのキーを入力してください。",
         "fal_billing_hint": "fal.aiのアカウントに利用可能なクレジットがあるか確認してください。",
+        "local_api_url_hint": "ACE-Step APIサーバーを起動してから選択してください。接続先は `.streamlit/secrets.toml` の `ACESTEP_LOCAL_URL` で設定できます（初期値: `http://127.0.0.1:8001`）。認証を有効にしたサーバーでは `ACESTEP_LOCAL_API_KEY` も設定してください。",
+        "local_api_unavailable": "ローカルのACE-Step APIサーバーに接続できません。先にサーバーを起動し、設定したURLとポートを確認してください。",
+        "minimax_lyrics_limit": "MiniMax Music 2.6は歌詞が3,500文字までです。歌詞を短くするか、別のサービスを選んでください。",
+        "mureka_lyrics_limit": "Mureka V8は歌詞が5,000文字までです。歌詞を短くしてください。",
+        "lyria_lyrics_limit": "Lyria 3.5に送る歌詞は5,000文字までにしてください。",
         "step3_title": "🎧 3. Webプレーヤーと曲のライブラリ",
         "upload_mp3_label": "再生・保存するMP3/WAVファイルをアップロード:",
         "saved_songs_label": "📂 保存済みの曲から選択:",
@@ -77,7 +109,7 @@ translations = {
         "playing_label": "再生中：",
         "download_label": "⬇️ ダウンロード",
         "url_error": "URLを読み込めませんでした: {error}",
-        "gemini_key_missing": "⚠️ `.streamlit/secrets.toml` に GEMINI_API_KEY が設定されていません。",
+        "gemini_key_missing": "⚠️ 左側の「APIキー」にGemini APIキーを入力してください。ローカル版では secrets.toml にも設定できます。",
         "model_list_error": "❌ APIキーでモデル一覧を取得できませんでした: {error}",
         "generation_success": "✅ {model} で生成しました。",
         "no_available_model": "このAPIキーで利用できるテキスト生成モデルがありません。",
@@ -111,9 +143,15 @@ translations = {
         "author_label": "Tác giả:",
         "login_title": "🔐 Đăng nhập để sử dụng",
         "login_desc": "Để đảm bảo an toàn và bảo mật, vui lòng đăng nhập thông qua tài khoản Google (Xác thực OAuth 2.0).",
-        "login_demo_desc": "Chế độ demo: Google OAuth chưa được cấu hình. Nhập địa chỉ có dạng email để vào thử; hệ thống không xác thực tài khoản Google.",
+        "login_demo_desc": "Chế độ demo: email dùng thử đã được điền sẵn. Bấm nút để tiếp tục; hệ thống không xác thực tài khoản Google.",
         "login_email_label": "Email dùng cho demo:",
         "btn_demo_login": "Vào thử chế độ demo",
+        "demo_sample_button": "🧪 Thử bằng ví dụ (không cần API)",
+        "demo_sample_caption": "Đây là ví dụ tóm tắt và lời bài hát; ứng dụng không tạo audio và không gọi API.",
+        "api_keys_title": "🔑 API key (chỉ trong phiên này)",
+        "gemini_api_key_label": "Gemini API key (tóm tắt và lời bài hát)",
+        "fal_api_key_label": "fal.ai API key (tạo nhạc)",
+        "api_keys_privacy": "Key được dùng trong bộ nhớ phiên của máy chủ ứng dụng, không ghi vào file; key được gửi qua máy chủ đến dịch vụ tương ứng. Chỉ nhập key trên ứng dụng bạn tin tưởng. Phí sử dụng do chủ key thanh toán.",
         "demo_badge": "ℹ️ Chế độ demo: chưa xác minh danh tính bằng Google OAuth.",
         "btn_google_login": "Đăng nhập bằng Google",
         "btn_logout": "Đăng xuất",
@@ -125,8 +163,9 @@ translations = {
         "tab_img": "🖼️ Tải Ảnh",
         "tab_url": "🔗 Nhập Link",
         "text_prompt": "Dán nội dung bài học cần ghi nhớ vào đây:",
-        "file_prompt": "Kéo thả tài liệu vào đây (PDF, DOCX, TXT)",
-        "img_prompt": "Kéo thả ảnh chụp trang sách/vở vào đây (PNG, JPG)",
+        "file_prompt": "Kéo thả một hoặc nhiều tài liệu vào đây (PDF, DOCX, TXT)",
+        "img_prompt": "Kéo thả một hoặc nhiều ảnh chụp trang sách/vở vào đây (PNG, JPG)",
+        "image_read_error": "Không đọc được ảnh: {name}",
         "url_prompt": "Dán đường link (URL) trang web bài học:",
         "prompt_section": "🎛️ Tùy chỉnh bài hát theo ý muốn (Prompt)",
         "genre_label": "Thể loại nhạc:",
@@ -140,14 +179,36 @@ translations = {
         "error_cooldown": "⏳ Hệ thống chống spam: Vui lòng đợi {sec} giây trước khi tạo tiếp.",
         "step2_title": "🎸 2. Tạo bài hát ngay trong ứng dụng",
         "step2_guide": "Ứng dụng dùng tiêu đề, phong cách và lời bài hát để tạo audio có giọng hát ngay tại đây.",
-        "btn_generate_audio": "🎵 Tạo bài hát (ACE-Step · fal.ai, ~$0.012/60 giây)",
-        "status_generating_audio": "fal.ai đang tạo bài hát; có thể mất một lúc tùy hàng đợi...",
+        "btn_generate_audio": "🎵 Tạo bài hát bằng dịch vụ đã chọn",
+        "status_generating_audio": "Đang tạo bài hát bằng dịch vụ đã chọn...",
         "audio_ready": "✅ Đã tạo và lưu bài hát.",
         "audio_error": "Không tạo được bài hát:",
-        "audio_quota_note": "Dùng API ACE-Step của fal.ai. Bài 60 giây ước tính khoảng $0.012; phí tính theo thời lượng audio tạo ra. App chỉ gửi thẻ phong cách và lời bài hát đã tạo.",
-        "fal_key_hint": "Tạo [API key trên fal.ai](https://fal.ai/dashboard/keys), thêm `FAL_KEY = \"...\"` vào `.streamlit/secrets.toml`, rồi khởi động lại app. Đừng chia sẻ key.",
-        "fal_key_missing": "Chưa có `FAL_KEY` trong `.streamlit/secrets.toml`.",
+        "audio_fallback_hint": "Bạn vẫn có thể phát các bài đã lưu trong thư viện bên dưới.",
+        "audio_provider_label": "🎛️ Chọn dịch vụ tạo nhạc",
+        "audio_provider_options": {
+            "fal_ace_step": "ACE-Step (fal.ai · chi phí thấp)",
+            "fal_minimax": "MiniMax Music 2.6 (fal.ai)",
+            "fal_mureka_v8": "Mureka V8 (fal.ai · nhập lời riêng)",
+            "fal_lyria_35": "Google Lyria 3.5 (fal.ai · bài hoàn chỉnh)",
+            "local_acestep": "ACE-Step (máy cá nhân · Local API)"
+        },
+        "audio_provider_notes": {
+            "fal_ace_step": "Ưu điểm: dễ dùng qua fal.ai, giá hiện khoảng $0.0002/giây (60 giây khoảng $0.012). Hạn chế: độ rõ của giọng hát và mức giữ nguyên lời có thể khác nhau giữa các bài. Cần FAL_KEY và credit; dùng chung số dư với các model fal.ai khác.",
+            "fal_minimax": "Ưu điểm: có ô nhập lời riêng và mô tả phong cách để tạo bài hoàn chỉnh có vocal. Hạn chế: $0.15/bài, đắt hơn ACE-Step; tối đa 3.500 ký tự và chưa có bảo đảm phát âm tiếng Việt. Cần FAL_KEY và credit.",
+            "fal_mureka_v8": "Ưu điểm: có ô nhập lời riêng, hỗ trợ tối đa 5.000 ký tự. Hạn chế: tiếng Việt không có trong danh sách ngôn ngữ được công bố, nên chưa đảm bảo phát âm. Khi gửi lời, giá hiện tại là $0.045/bài. Cần FAL_KEY và credit; nếu dùng app chung, phí tính vào tài khoản đã cấu hình.",
+            "fal_lyria_35": "Ưu điểm: tạo bài hoàn chỉnh dài vài phút, có hỗ trợ tiếng Nhật. Hạn chế: app gửi lời trong prompt nên model có thể sửa hoặc bỏ sót lời; tiếng Việt không có trong danh sách ngôn ngữ được công bố. Giá hiện tại là $0.10/lần. Cần FAL_KEY và credit; app chung tính phí vào tài khoản đã cấu hình.",
+            "local_acestep": "Ưu điểm: không tính phí API theo từng lần tạo và có thể chạy trên máy cá nhân. Hạn chế: phải cài ACE-Step 1.5 API server; tham khảo VRAM từ 4GB (6GB nếu dùng LM), khoảng 10GB dung lượng trống. Cần máy đủ mạnh, điện và thời gian thiết lập; chất lượng vocal không được bảo đảm. Nếu app chạy trên cloud, 127.0.0.1 là máy chủ cloud, không phải máy của người dùng.",
+        },
+        "audio_quota_note": "Ứng dụng gửi tiêu đề, phong cách nhạc và lời bài hát để tạo audio; không gửi tài liệu học gốc đến dịch vụ tạo nhạc. Hãy chọn theo chi phí, thời gian chờ và thiết bị của bạn.",
+        "vietnamese_vocal_warning": "⚠️ Một số model có thể hát lời tiếng Việt không rõ; kết quả tùy model và lời bài hát. Nếu cần nghe rõ, hãy thử dịch vụ khác và kiểm tra lời trước khi sử dụng.",
+        "fal_key_hint": "Hãy nhập key cá nhân ở mục API key bên trái; bản chạy cục bộ cũng có thể đặt trong `.streamlit/secrets.toml`. Phí fal.ai tính cho chủ sở hữu key.",
+        "fal_key_missing": "Hãy nhập key fal.ai cá nhân ở mục API key bên trái.",
         "fal_billing_hint": "Kiểm tra tài khoản fal.ai còn credit khả dụng không.",
+        "local_api_url_hint": "Hãy khởi chạy ACE-Step API server trước. Có thể cấu hình địa chỉ trong `.streamlit/secrets.toml` bằng `ACESTEP_LOCAL_URL` (mặc định `http://127.0.0.1:8001`). Nếu server bật xác thực, hãy thêm `ACESTEP_LOCAL_API_KEY`.",
+        "local_api_unavailable": "Không kết nối được với ACE-Step API server cục bộ. Hãy khởi chạy server trước và kiểm tra URL/cổng đã cấu hình.",
+        "minimax_lyrics_limit": "MiniMax Music 2.6 giới hạn lời bài hát ở 3.500 ký tự. Hãy rút ngắn lời hoặc chọn dịch vụ khác.",
+        "mureka_lyrics_limit": "Mureka V8 giới hạn lời bài hát ở 5.000 ký tự. Hãy rút ngắn lời.",
+        "lyria_lyrics_limit": "Lời gửi cho Lyria 3.5 cần tối đa 5.000 ký tự.",
         "step3_title": "🎧 3. Trình phát nhạc và thư viện trên Web",
         "upload_mp3_label": "Tải lên file MP3/WAV để phát và lưu trong thư viện:",
         "saved_songs_label": "📂 Hoặc mở lại các bài hát đã lưu trên Web:",
@@ -163,7 +224,7 @@ translations = {
         "playing_label": "Đang phát:",
         "download_label": "⬇️ Tải xuống",
         "url_error": "Không thể tải URL: {error}",
-        "gemini_key_missing": "⚠️ Chưa cấu hình GEMINI_API_KEY trong `.streamlit/secrets.toml`.",
+        "gemini_key_missing": "⚠️ Hãy nhập Gemini API key ở mục API key bên trái; bản chạy cục bộ cũng có thể đặt trong secrets.toml.",
         "model_list_error": "❌ Không thể lấy danh sách model bằng API key: {error}",
         "generation_success": "✅ Đã tạo thành công bằng model: {model}",
         "no_available_model": "Tài khoản API key này hiện không có model tạo văn bản khả dụng.",
@@ -197,9 +258,15 @@ translations = {
         "author_label": "Author:",
         "login_title": "🔐 Sign in to continue",
         "login_desc": "For your security, please sign in with your Google account (Protected by OAuth 2.0).",
-        "login_demo_desc": "Demo mode: Google OAuth is not configured. Enter an email-shaped address to continue; Google identity is not verified.",
+        "login_demo_desc": "Demo mode: a sample email is already filled in. Click the button to continue; Google identity is not verified.",
         "login_email_label": "Demo email address:",
         "btn_demo_login": "Continue in demo mode",
+        "demo_sample_button": "🧪 Try the sample (no API needed)",
+        "demo_sample_caption": "This is a sample summary and lyric output. It does not create audio or call an API.",
+        "api_keys_title": "🔑 API keys (this session only)",
+        "gemini_api_key_label": "Gemini API key (summary and lyrics)",
+        "fal_api_key_label": "fal.ai API key (music generation)",
+        "api_keys_privacy": "Keys are used in this app server's session memory, not written to files, and sent through the server to the selected service. Enter keys only in an app you trust. Usage is billed to the key owner.",
         "demo_badge": "ℹ️ Demo mode: Google OAuth identity verification is off.",
         "btn_google_login": "Sign in with Google",
         "btn_logout": "Sign out",
@@ -211,8 +278,9 @@ translations = {
         "tab_img": "🖼️ Image Upload",
         "tab_url": "🔗 URL Input",
         "text_prompt": "Paste your study content here:",
-        "file_prompt": "Drop your document here (PDF, DOCX, TXT)",
-        "img_prompt": "Drop your image here (PNG, JPG)",
+        "file_prompt": "Drop one or more documents here (PDF, DOCX, TXT)",
+        "img_prompt": "Upload one or more study images (PNG, JPG)",
+        "image_read_error": "Could not read image: {name}",
         "url_prompt": "Paste the website URL:",
         "prompt_section": "🎛️ Customize Song Style (Prompt)",
         "genre_label": "Music Genre:",
@@ -226,14 +294,36 @@ translations = {
         "error_cooldown": "⏳ Anti-spam protection: Please wait {sec} seconds before generating again.",
         "step2_title": "🎸 2. Generate a song in the app",
         "step2_guide": "The app uses the generated title, style, and lyrics to create vocals here.",
-        "btn_generate_audio": "🎵 Generate song (ACE-Step · fal.ai, ~$0.012/60 sec)",
-        "status_generating_audio": "fal.ai is generating the song; queue time may vary...",
+        "btn_generate_audio": "🎵 Generate with selected service",
+        "status_generating_audio": "Generating with the selected service...",
         "audio_ready": "✅ Song generated and saved.",
         "audio_error": "Could not generate the song:",
-        "audio_quota_note": "Uses fal.ai's ACE-Step API. A 60-second song costs about $0.012; billing follows the generated audio duration. Only generated style tags and lyrics are sent.",
-        "fal_key_hint": "Create a [fal.ai API key](https://fal.ai/dashboard/keys), add `FAL_KEY = \"...\"` to `.streamlit/secrets.toml`, then restart the app. Do not share the key.",
-        "fal_key_missing": "`FAL_KEY` is missing from `.streamlit/secrets.toml`.",
+        "audio_fallback_hint": "You can still play saved songs from the library below.",
+        "audio_provider_label": "🎛️ Choose a music service",
+        "audio_provider_options": {
+            "fal_ace_step": "ACE-Step (fal.ai · low cost)",
+            "fal_minimax": "MiniMax Music 2.6 (fal.ai)",
+            "fal_mureka_v8": "Mureka V8 (fal.ai · custom lyrics)",
+            "fal_lyria_35": "Google Lyria 3.5 (fal.ai · full song)",
+            "local_acestep": "ACE-Step (your computer · Local API)"
+        },
+        "audio_provider_notes": {
+            "fal_ace_step": "Pros: easy to access through fal.ai and currently about $0.0002/sec ($0.012 for 60 sec). Cons: vocal clarity and lyric fidelity can vary by song. Requires FAL_KEY and credits shared with the other fal.ai models.",
+            "fal_minimax": "Pros: separate lyrics and style inputs for complete vocal tracks. Cons: $0.15/song, more than ACE-Step; 3,500-character lyric limit, and Vietnamese pronunciation is not assured. Requires FAL_KEY and credits.",
+            "fal_mureka_v8": "Pros: separate lyrics input, up to 5,000 characters. Cons: Vietnamese is not in the published language list, so pronunciation is not assured. Current price with supplied lyrics is $0.045/song. Requires FAL_KEY and fal.ai credits; shared apps charge the configured account.",
+            "fal_lyria_35": "Pros: generates structured full songs up to a few minutes and supports Japanese. Cons: lyrics are embedded in the prompt, so exact wording may change; Vietnamese is not in the published language list. Current price is $0.10/generation. Requires FAL_KEY and credits; shared apps charge the configured account.",
+            "local_acestep": "Pros: no per-generation API fee and can run on your own computer. Cons: requires a separate ACE-Step 1.5 API server; reference hardware is at least 4GB VRAM (6GB with LM) and about 10GB free disk space. Hardware, electricity, setup time, and vocal quality are still factors. In a cloud-hosted app, 127.0.0.1 points to the cloud server, not your computer.",
+        },
+        "audio_quota_note": "The music service receives the generated title, style, and lyrics; the original study material is not sent to it. Choose based on cost, waiting time, and available hardware.",
+        "vietnamese_vocal_warning": "⚠️ Vietnamese lyrics may be hard to understand depending on the model and wording. If clear pronunciation matters, try another service and review the lyrics before using the song.",
+        "fal_key_hint": "Enter your own key in API keys in the sidebar; for a local app, you can also set it in `.streamlit/secrets.toml`. fal.ai usage is billed to the key owner.",
+        "fal_key_missing": "Enter your own fal.ai key in API keys in the sidebar.",
         "fal_billing_hint": "Check that your fal.ai account has available credits.",
+        "local_api_url_hint": "Start the ACE-Step API server first. Set its address in `.streamlit/secrets.toml` as `ACESTEP_LOCAL_URL` (default: `http://127.0.0.1:8001`). If the server requires authentication, also set `ACESTEP_LOCAL_API_KEY`.",
+        "local_api_unavailable": "The local ACE-Step API server is not reachable. Start it first and check the configured URL and port.",
+        "minimax_lyrics_limit": "MiniMax Music 2.6 supports up to 3,500 lyric characters. Shorten the lyrics or choose another service.",
+        "mureka_lyrics_limit": "Mureka V8 supports up to 5,000 lyric characters. Shorten the lyrics.",
+        "lyria_lyrics_limit": "Lyrics sent to Lyria 3.5 must be 5,000 characters or fewer.",
         "step3_title": "🎧 3. Web audio player and library",
         "upload_mp3_label": "Upload an MP3/WAV file to play and save it in the library:",
         "saved_songs_label": "📂 Or select from previously saved songs:",
@@ -249,7 +339,7 @@ translations = {
         "playing_label": "Playing:",
         "download_label": "⬇️ Download",
         "url_error": "Could not load URL: {error}",
-        "gemini_key_missing": "⚠️ GEMINI_API_KEY is not configured in `.streamlit/secrets.toml`.",
+        "gemini_key_missing": "⚠️ Enter a Gemini API key in API keys in the sidebar; for a local app, you can also set it in secrets.toml.",
         "model_list_error": "❌ Could not list models with this API key: {error}",
         "generation_success": "✅ Generated successfully with model: {model}",
         "no_available_model": "No text generation models are available for this API key.",
@@ -342,36 +432,136 @@ def get_secret_safe(key_name):
         return None
 
 
-FAL_ACE_STEP_QUEUE_URL = "https://queue.fal.run/fal-ai/ace-step"
+def get_runtime_key(key_name):
+    """Prefer a per-session key, then fall back to the configured secret."""
+    session_key_names = {
+        "GEMINI_API_KEY": "session_gemini_api_key",
+        "FAL_KEY": "session_fal_api_key",
+    }
+    session_key = st.session_state.get(session_key_names.get(key_name, ""), "")
+    if session_key and str(session_key).strip():
+        return str(session_key).strip()
+    return get_secret_safe(key_name)
 
 
-def generate_audio_with_fal(song_data, duration=60):
-    """Generate a song through fal.ai and return its bytes, MIME type, and extension."""
-    api_key = get_secret_safe("FAL_KEY")
+def get_demo_song(language):
+    """Return a clearly labeled, prewritten example that works without API keys."""
+    examples = {
+        "JP": {
+            "title": "論理ゲート・リズム",
+            "summary": "ANDは両方が1のとき1、ORは少なくとも片方が1なら1、XORは入力が異なるとき1、NOTは入力を反転します。",
+            "tags": "J-Pop, Anime Opening, 160 BPM, Clear female vocal, energetic, educational",
+            "lyrics": "[Verse]\nANDは二つ そろったら1\nORはどちらか 1なら1\nXORは違えば 光る1\nNOTでひっくり返そう\n\n[Chorus]\nAND OR XOR NOT\n0と1を組み合わせ\n真理値表をたどれば\n論理のルールが見えてくる",
+        },
+        "VI": {
+            "title": "Nhịp điệu cổng logic",
+            "summary": "AND cho kết quả 1 khi cả hai đầu vào đều là 1; OR cho 1 khi có ít nhất một đầu vào là 1; XOR cho 1 khi hai đầu vào khác nhau; NOT đảo đầu vào.",
+            "tags": "J-Pop, Anime Opening, 160 BPM, Clear female vocal, energetic, educational",
+            "lyrics": "[Verse]\nAND cần hai số một cùng lên\nOR chỉ cần một là sáng đèn\nXOR khác nhau thì bật tín hiệu\nNOT đảo ngược, nhớ thật lâu\n\n[Chorus]\nAND, OR, XOR, NOT\nGhép số không với số một\nTheo bảng chân trị từng dòng\nQuy tắc logic nằm trong lòng",
+        },
+        "EN": {
+            "title": "Logic Gate Rhythm",
+            "summary": "AND is 1 only when both inputs are 1. OR is 1 when either input is 1. XOR is 1 when inputs differ. NOT reverses its input.",
+            "tags": "J-Pop, Anime Opening, 160 BPM, Clear female vocal, energetic, educational",
+            "lyrics": "[Verse]\nAND needs two ones to light the way\nOR needs one, then it's okay\nXOR shines when the inputs disagree\nNOT flips the bit for you and me\n\n[Chorus]\nAND, OR, XOR, NOT\nZeros and ones connect the dots\nFollow the truth table through\nLogic starts to make sense to you",
+        },
+    }
+    return {**examples.get(language, examples["JP"]), "is_demo_sample": True}
+
+
+FAL_QUEUE_BASE_URL = "https://queue.fal.run/"
+FAL_MUSIC_ENDPOINTS = {
+    "fal_ace_step": "fal-ai/ace-step",
+    "fal_minimax": "fal-ai/minimax-music/v2.6",
+    "fal_mureka_v8": "mureka/v8/generate/song",
+    "fal_lyria_35": "google/lyria-3.5",
+}
+
+
+def fal_response_error(response):
+    """Return a concise fal.ai error without exposing request headers or API keys."""
+    detail = ""
+    try:
+        body = response.json()
+        if isinstance(body, dict):
+            detail = body.get("detail") or body.get("message") or body.get("error") or ""
+            if isinstance(detail, (dict, list)):
+                detail = json.dumps(detail, ensure_ascii=False)
+        elif body:
+            detail = str(body)
+    except ValueError:
+        detail = response.text.strip()
+
+    detail = re.sub(r"\s+", " ", str(detail)).strip()[:500]
+    if not detail:
+        detail = "No additional error details were returned."
+    return f"fal.ai returned HTTP {response.status_code}: {detail}"
+
+
+def generate_audio_with_fal(song_data, model="fal_ace_step", duration=60):
+    """Generate a song with a fal.ai model and return bytes, MIME type, and extension."""
+    api_key = get_runtime_key("FAL_KEY")
     if not api_key or not str(api_key).strip():
         raise RuntimeError("FAL_KEY is missing from Streamlit secrets.")
+
+    endpoint = FAL_MUSIC_ENDPOINTS.get(model)
+    if not endpoint:
+        raise RuntimeError("The selected fal.ai music model is not supported.")
 
     headers = {
         "Authorization": f"Key {str(api_key).strip()}",
         "Content-Type": "application/json",
     }
-    payload = {
-        "tags": str(song_data["tags"])[:500],
-        "lyrics": str(song_data["lyrics"])[:6000],
-        "duration": duration,
-        "number_of_steps": 27,
-    }
+    music_prompt = f"{song_data.get('title', '')}; {song_data['tags']}".strip("; ")
+    lyrics = str(song_data["lyrics"])
+    if model == "fal_minimax":
+        if len(lyrics) > 3500:
+            raise RuntimeError("MiniMax Music 2.6 supports up to 3,500 lyric characters.")
+        payload = {
+            "prompt": music_prompt[:2000],
+            "lyrics": lyrics,
+            "is_instrumental": False,
+        }
+    elif model == "fal_mureka_v8":
+        if len(lyrics) > 5000:
+            raise RuntimeError("Mureka V8 supports up to 5,000 lyric characters.")
+        payload = {
+            "prompt": music_prompt[:1024],
+            "lyrics": lyrics,
+            "enable_safety_checker": True,
+        }
+    elif model == "fal_lyria_35":
+        if len(lyrics) > 5000:
+            raise RuntimeError("Lyria 3.5 supports lyrics up to 5,000 characters in this app.")
+        prompt = (
+            "Create a complete, structured song in the same language as the lyrics below. "
+            "Use them as the exact words to sing. "
+            "Preserve the wording and line order; do not translate, omit, or add lyric lines. "
+            f"Title: {song_data.get('title', '')}. Style: {song_data['tags']}.\n\nLyrics:\n{lyrics}"
+        )
+        payload = {"prompt": prompt, "enable_safety_checker": True}
+    else:
+        payload = {
+            "tags": music_prompt[:500],
+            "lyrics": str(song_data["lyrics"])[:6000],
+            "duration": duration,
+            "number_of_steps": 27,
+        }
 
     submit_response = requests.post(
-        FAL_ACE_STEP_QUEUE_URL,
+        urljoin(FAL_QUEUE_BASE_URL, endpoint),
         headers=headers,
         json=payload,
         timeout=(15, 120),
     )
-    if submit_response.status_code in {401, 403}:
-        raise RuntimeError("fal.ai rejected FAL_KEY. Check the API key in Streamlit secrets.")
+    if submit_response.status_code == 401:
+        raise RuntimeError(f"Invalid or expired FAL_KEY. {fal_response_error(submit_response)}")
+    if submit_response.status_code == 403:
+        raise RuntimeError(f"fal.ai denied this key or model permission. {fal_response_error(submit_response)}")
     if submit_response.status_code == 402:
-        raise RuntimeError("fal.ai account has no available credits.")
+        raise RuntimeError(f"fal.ai account has no available credits. {fal_response_error(submit_response)}")
+    if not submit_response.ok:
+        raise RuntimeError(fal_response_error(submit_response))
     submit_response.raise_for_status()
     job = submit_response.json()
 
@@ -384,8 +574,8 @@ def generate_audio_with_fal(song_data, duration=60):
     deadline = time.monotonic() + 600
     while time.monotonic() < deadline:
         status_response = requests.get(status_url, headers=headers, timeout=(15, 30))
-        if status_response.status_code in {401, 403}:
-            raise RuntimeError("fal.ai rejected FAL_KEY while checking the generation status.")
+        if not status_response.ok:
+            raise RuntimeError(fal_response_error(status_response))
         status_response.raise_for_status()
         status_data = status_response.json()
 
@@ -403,10 +593,16 @@ def generate_audio_with_fal(song_data, duration=60):
         raise RuntimeError("fal.ai generation did not finish within 10 minutes; the request was cancelled.")
 
     result_response = requests.get(response_url, headers=headers, timeout=(15, 60))
+    if not result_response.ok:
+        raise RuntimeError(fal_response_error(result_response))
     result_response.raise_for_status()
     result = result_response.json()
     audio_item = result.get("audio") or {}
-    audio_url = audio_item.get("url")
+    if isinstance(audio_item, str):
+        audio_url = audio_item
+        audio_item = {}
+    else:
+        audio_url = audio_item.get("url") if isinstance(audio_item, dict) else None
     if not audio_url:
         raise RuntimeError("fal.ai finished but did not return an audio file.")
 
@@ -415,7 +611,9 @@ def generate_audio_with_fal(song_data, duration=60):
     if not audio_response.content:
         raise RuntimeError("fal.ai returned an empty audio file.")
 
-    content_type = audio_item.get("content_type") or audio_response.headers.get("Content-Type", "audio/wav")
+    content_type = (
+        audio_item.get("content_type") if isinstance(audio_item, dict) else None
+    ) or audio_response.headers.get("Content-Type", "audio/wav")
     if ";" in content_type:
         content_type = content_type.split(";", 1)[0].strip()
     file_name = audio_item.get("file_name") or audio_url.split("?", 1)[0]
@@ -423,6 +621,117 @@ def generate_audio_with_fal(song_data, duration=60):
     if extension not in {".wav", ".mp3", ".flac", ".ogg"}:
         extension = ".mp3" if content_type in {"audio/mpeg", "audio/mp3"} else ".wav"
     return audio_response.content, content_type, extension
+
+
+def local_acestep_api_is_reachable():
+    """Check whether the configured local ACE-Step API host accepts connections."""
+    base_url = str(
+        get_secret_safe("ACESTEP_LOCAL_URL") or "http://127.0.0.1:8001"
+    ).strip()
+    parsed = urlparse(base_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return False
+
+    try:
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        with socket.create_connection((parsed.hostname, port), timeout=0.5):
+            return True
+    except (OSError, ValueError):
+        return False
+
+
+def generate_audio_with_local_acestep(song_data, duration=60, vocal_language="ja"):
+    """Generate a song through a locally running ACE-Step REST API server."""
+    base_url = str(
+        get_secret_safe("ACESTEP_LOCAL_URL") or "http://127.0.0.1:8001"
+    ).strip().rstrip("/")
+    if not base_url.startswith(("http://", "https://")):
+        raise RuntimeError("ACESTEP_LOCAL_URL must start with http:// or https://.")
+
+    headers = {}
+    api_key = get_secret_safe("ACESTEP_LOCAL_API_KEY")
+    if api_key and str(api_key).strip():
+        headers["Authorization"] = f"Bearer {str(api_key).strip()}"
+
+    payload = {
+        "prompt": f"{song_data.get('title', '')}; {song_data['tags']}".strip("; ")[:2000],
+        "lyrics": str(song_data["lyrics"])[:4096],
+        "audio_duration": duration,
+        "batch_size": 1,
+        "thinking": False,
+        "vocal_language": vocal_language,
+        "audio_format": "mp3",
+    }
+    submit_response = requests.post(
+        f"{base_url}/release_task", headers=headers, json=payload, timeout=(10, 60)
+    )
+    submit_response.raise_for_status()
+    submit_data = submit_response.json()
+    task_id = (submit_data.get("data") or {}).get("task_id")
+    if not task_id:
+        detail = submit_data.get("error") or submit_data.get("message") or submit_data
+        raise RuntimeError(f"Local ACE-Step did not return a task ID: {detail}")
+
+    deadline = time.monotonic() + 900
+    while time.monotonic() < deadline:
+        result_response = requests.post(
+            f"{base_url}/query_result",
+            headers=headers,
+            json={"task_id_list": [task_id]},
+            timeout=(10, 30),
+        )
+        result_response.raise_for_status()
+        result_data = result_response.json().get("data") or []
+        if result_data:
+            record = result_data[0]
+            status = int(record.get("status", 0))
+            if status == 2:
+                raise RuntimeError(
+                    str(record.get("error") or record.get("result") or "Local ACE-Step generation failed.")
+                )
+            if status == 1:
+                raw_result = record.get("result") or []
+                if isinstance(raw_result, str):
+                    try:
+                        raw_result = json.loads(raw_result)
+                    except json.JSONDecodeError as exc:
+                        raise RuntimeError("Local ACE-Step returned an unreadable result.") from exc
+                if isinstance(raw_result, dict):
+                    audio_item = raw_result
+                elif isinstance(raw_result, list) and raw_result:
+                    audio_item = raw_result[0]
+                else:
+                    raise RuntimeError("Local ACE-Step completed without an audio file.")
+
+                file_ref = audio_item.get("file") or audio_item.get("url")
+                if not file_ref:
+                    raise RuntimeError("Local ACE-Step completed without an audio file URL.")
+                if str(file_ref).startswith(("http://", "https://")):
+                    audio_url = str(file_ref)
+                    audio_response = requests.get(audio_url, timeout=(15, 120))
+                elif str(file_ref).startswith("/v1/audio"):
+                    audio_url = urljoin(f"{base_url}/", str(file_ref).lstrip("/"))
+                    audio_response = requests.get(
+                        audio_url, headers=headers, timeout=(15, 120)
+                    )
+                else:
+                    audio_response = requests.get(
+                        f"{base_url}/v1/audio",
+                        headers=headers,
+                        params={"path": str(file_ref)},
+                        timeout=(15, 120),
+                    )
+                audio_response.raise_for_status()
+                if not audio_response.content:
+                    raise RuntimeError("Local ACE-Step returned an empty audio file.")
+                content_type = audio_response.headers.get("Content-Type", "audio/mpeg")
+                if ";" in content_type:
+                    content_type = content_type.split(";", 1)[0].strip()
+                extension = ".wav" if content_type in {"audio/wav", "audio/x-wav"} else ".mp3"
+                return audio_response.content, content_type, extension
+        time.sleep(2)
+
+    raise RuntimeError("Local ACE-Step did not finish within 15 minutes.")
 
 auth_cfg = get_secret_safe("auth")
 oauth_configured = bool(auth_cfg and "client_id" in auth_cfg)
@@ -436,7 +745,7 @@ if not st.session_state["authenticated"] and not is_native_logged_in:
     if not oauth_configured:
         demo_email_input = st.text_input(
             t["login_email_label"],
-            value="",
+            value="demo@knowledge2music.app",
             placeholder="demo@example.com"
         )
 
@@ -469,7 +778,23 @@ with st.sidebar:
             st.logout()
         st.session_state["authenticated"] = False
         st.session_state["user_email"] = ""
+        st.session_state["session_gemini_api_key"] = ""
+        st.session_state["session_fal_api_key"] = ""
         st.rerun()
+
+    st.markdown("---")
+    with st.expander(t["api_keys_title"], expanded=False):
+        st.text_input(
+            t["gemini_api_key_label"],
+            type="password",
+            key="session_gemini_api_key",
+        )
+        st.text_input(
+            t["fal_api_key_label"],
+            type="password",
+            key="session_fal_api_key",
+        )
+        st.caption(t["api_keys_privacy"])
 
     st.markdown("---")
     st.subheader(t["feedback_title"])
@@ -498,7 +823,7 @@ tab1, tab2, tab3, tab4 = st.tabs(
 )
 
 extracted_text = ""
-pil_image = None
+pil_images = []
 
 with tab1:
     text_input = st.text_area(t["text_prompt"], height=150, max_chars=5000)
@@ -506,10 +831,12 @@ with tab1:
         extracted_text += text_input.strip() + "\n"
 
 with tab2:
-    uploaded_file = st.file_uploader(
-        t["file_prompt"], type=["txt", "pdf", "docx"]
+    uploaded_files = st.file_uploader(
+        t["file_prompt"],
+        type=["txt", "pdf", "docx"],
+        accept_multiple_files=True,
     )
-    if uploaded_file is not None:
+    for uploaded_file in uploaded_files:
         st.success(f"📄 {uploaded_file.name}")
         ext = uploaded_file.name.split(".")[-1].lower()
         if ext == "txt":
@@ -525,12 +852,27 @@ with tab2:
                 extracted_text += para.text + "\n"
 
 with tab3:
-    uploaded_image = st.file_uploader(
-        t["img_prompt"], type=["png", "jpg", "jpeg"]
+    uploaded_images = st.file_uploader(
+        t["img_prompt"],
+        type=["png", "jpg", "jpeg"],
+        accept_multiple_files=True,
     )
-    if uploaded_image is not None:
-        pil_image = Image.open(uploaded_image)
-        st.image(pil_image, use_container_width=True)
+    image_names = []
+    for uploaded_image in uploaded_images:
+        try:
+            with Image.open(uploaded_image) as opened_image:
+                prepared_image = ImageOps.exif_transpose(opened_image).convert("RGB")
+            prepared_image.thumbnail((1536, 1536))
+            pil_images.append(prepared_image)
+            image_names.append(uploaded_image.name)
+        except Exception:
+            st.warning(t["image_read_error"].format(name=uploaded_image.name))
+
+    if pil_images:
+        image_columns = st.columns(min(4, len(pil_images)))
+        for index, (image, image_name) in enumerate(zip(pil_images, image_names)):
+            with image_columns[index % len(image_columns)]:
+                st.image(image, caption=image_name, use_container_width=True)
 
 with tab4:
     url_input = st.text_input(t["url_prompt"], max_chars=300)
@@ -591,6 +933,12 @@ custom_prompt = st.text_input(
     max_chars=500
 )
 
+if st.button(t["demo_sample_button"], use_container_width=True):
+    st.session_state["song_data"] = get_demo_song(st.session_state["lang"])
+    st.session_state["generated_audio_path"] = None
+    st.session_state["generated_audio_mime"] = None
+    st.rerun()
+
 # --- 9. ステップ1：Geminiで要約と歌詞を作成 ---
 if st.button(t["btn_generate"], type="primary", use_container_width=True):
     now = time.time()
@@ -599,10 +947,10 @@ if st.button(t["btn_generate"], type="primary", use_container_width=True):
     if now - st.session_state["last_request_time"] < cooldown:
         remaining = int(cooldown - (now - st.session_state["last_request_time"]))
         st.warning(t["error_cooldown"].format(sec=remaining))
-    elif not extracted_text.strip() and pil_image is None:
+    elif not extracted_text.strip() and not pil_images:
         st.error(t["error_no_data"])
     else:
-        api_key = get_secret_safe("GEMINI_API_KEY")
+        api_key = get_runtime_key("GEMINI_API_KEY")
         if not api_key:
             st.error(t["gemini_key_missing"])
             st.stop()
@@ -640,8 +988,7 @@ if st.button(t["btn_generate"], type="primary", use_container_width=True):
                 contents = [system_instruction]
                 if extracted_text.strip():
                     contents.append(f"Study Material:\n{extracted_text}")
-                if pil_image is not None:
-                    contents.append(pil_image)
+                contents.extend(pil_images)
 
                 # APIキーで利用可能なモデル一覧をGoogleサーバーから取得
                 available_models = []
@@ -723,7 +1070,8 @@ if st.button(t["btn_generate"], type="primary", use_container_width=True):
                     "title": title_val.strip(),
                     "summary": summary_val.strip(),
                     "tags": tags_val.strip(),
-                    "lyrics": lyrics_val.strip()
+                    "lyrics": lyrics_val.strip(),
+                    "is_demo_sample": False,
                 }
         except Exception as e:
             st.error(f"{t['generation_error']} {e}")
@@ -734,6 +1082,8 @@ if st.session_state["song_data"] is not None:
     st.markdown("---")
     st.subheader(t["step2_title"])
     st.caption(t["step2_guide"])
+    if data.get("is_demo_sample"):
+        st.info(t["demo_sample_caption"])
 
     col_s1, col_s2 = st.columns([1, 1])
     with col_s1:
@@ -746,19 +1096,75 @@ if st.session_state["song_data"] is not None:
         st.markdown(f"#### {t['music_style_label']}")
         st.code(data["tags"], language="text")
 
+        audio_provider = st.selectbox(
+            t["audio_provider_label"],
+            options=list(t["audio_provider_options"].keys()),
+            format_func=lambda provider: t["audio_provider_options"][provider],
+            key="audio_provider",
+        )
+        st.info(t["audio_provider_notes"][audio_provider])
         st.caption(t["audio_quota_note"])
-        fal_key_configured = bool(get_secret_safe("FAL_KEY"))
-        if not fal_key_configured:
+        if st.session_state["lang"] == "VI":
+            st.warning(t["vietnamese_vocal_warning"])
+
+        fal_key_configured = bool(get_runtime_key("FAL_KEY"))
+        provider_needs_fal = audio_provider in {
+            "fal_ace_step", "fal_minimax", "fal_mureka_v8", "fal_lyria_35"
+        }
+        minimax_lyrics_too_long = (
+            audio_provider == "fal_minimax" and len(data["lyrics"]) > 3500
+        )
+        mureka_lyrics_too_long = (
+            audio_provider == "fal_mureka_v8" and len(data["lyrics"]) > 5000
+        )
+        lyria_lyrics_too_long = (
+            audio_provider == "fal_lyria_35" and len(data["lyrics"]) > 5000
+        )
+
+        if provider_needs_fal and not fal_key_configured:
             st.info(t["fal_key_hint"])
+        local_api_available = True
+        if audio_provider == "local_acestep":
+            st.info(t["local_api_url_hint"])
+            local_api_available = local_acestep_api_is_reachable()
+            if not local_api_available:
+                st.warning(t["local_api_unavailable"])
+        if minimax_lyrics_too_long:
+            st.warning(t["minimax_lyrics_limit"])
+        if mureka_lyrics_too_long:
+            st.warning(t["mureka_lyrics_limit"])
+        if lyria_lyrics_too_long:
+            st.warning(t["lyria_lyrics_limit"])
+
         if st.button(
             t["btn_generate_audio"],
             type="primary",
             use_container_width=True,
-            disabled=not fal_key_configured,
+            disabled=(provider_needs_fal and not fal_key_configured)
+            or minimax_lyrics_too_long
+            or mureka_lyrics_too_long
+            or lyria_lyrics_too_long
+            or (audio_provider == "local_acestep" and not local_api_available),
         ):
             with st.spinner(t["status_generating_audio"]):
                 try:
-                    audio_bytes, audio_mime, audio_extension = generate_audio_with_fal(data)
+                    if audio_provider == "local_acestep":
+                        vocal_language = {
+                            "JP": "ja",
+                            "VI": "vi",
+                            "EN": "en",
+                        }.get(st.session_state["lang"], "ja")
+                        audio_bytes, audio_mime, audio_extension = generate_audio_with_local_acestep(
+                            data,
+                            duration=60,
+                            vocal_language=vocal_language,
+                        )
+                    else:
+                        audio_bytes, audio_mime, audio_extension = generate_audio_with_fal(
+                            data,
+                            model=audio_provider,
+                            duration=60,
+                        )
                     safe_title = re.sub(r"[^\w-]+", "_", data["title"], flags=re.UNICODE).strip("_-")[:60]
                     if not safe_title:
                         safe_title = "knowledge_song"
@@ -774,6 +1180,11 @@ if st.session_state["song_data"] is not None:
                 except Exception as exc:
                     error_detail = str(exc)
                     st.error(f"{t['audio_error']} {error_detail}")
+                    if os.path.isdir("saved_songs") and any(
+                        name.lower().endswith((".mp3", ".wav"))
+                        for name in os.listdir("saved_songs")
+                    ):
+                        st.caption(t["audio_fallback_hint"])
                     lower_error = error_detail.lower()
                     if "fal_key" in lower_error or "401" in lower_error or "403" in lower_error:
                         st.info(t["fal_key_hint"])
@@ -838,3 +1249,4 @@ if saved_files:
         mime=song_mime,
         use_container_width=True
     )
+
