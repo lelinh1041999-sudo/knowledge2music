@@ -85,6 +85,9 @@ translations = {
             "local_acestep": "長所：APIの従量料金なしで自分のPC上に生成できます。短所：ACE-Step 1.5 APIサーバーの導入が必要で、目安はVRAM 4GB以上（LM使用時6GB以上）と約10GBの空き容量です。PC性能、電気代、設定作業が必要で、歌声の明瞭さは保証されません。クラウドアプリから利用する場合は別途公開接続が必要です。"
         },
         "audio_quota_note": "タイトル、音楽スタイル、歌詞を音楽生成サービスに送信します。元の学習資料は送信しません。料金・待ち時間・必要な機器を確認して選んでください。",
+        "music_copyright_warning": "著作権の注意：AIが作った曲でも、既存曲のメロディーや歌詞に似ることがあります。入力には利用できる歌詞を使い、公開・商用利用の前に曲を聴いて利用条件を確認してください。既存曲によく似ている場合は、権利を確認するまで公開を控えてください。",
+        "music_model_terms_link": "モデルの公式ページ",
+        "music_fal_terms_link": "fal.aiの利用規約",
         "vietnamese_vocal_warning": "⚠️ ベトナム語の歌詞は、モデルや歌詞によって発音が不明瞭になる場合があります。聞き取りやすさを重視する場合は、別のサービスも試してください。",
         "fal_key_hint": "左側のAPIキー入力欄に自分のキーを入力してください。ローカル版では `.streamlit/secrets.toml` にも設定できます。fal.aiの利用料はキーの所有者に請求されます。",
         "fal_key_missing": "左側のAPIキー入力欄にfal.aiのキーを入力してください。",
@@ -200,6 +203,9 @@ translations = {
             "local_acestep": "Ưu điểm: không tính phí API theo từng lần tạo và có thể chạy trên máy cá nhân. Hạn chế: phải cài ACE-Step 1.5 API server; tham khảo VRAM từ 4GB (6GB nếu dùng LM), khoảng 10GB dung lượng trống. Cần máy đủ mạnh, điện và thời gian thiết lập; chất lượng vocal không được bảo đảm. Nếu app chạy trên cloud, 127.0.0.1 là máy chủ cloud, không phải máy của người dùng.",
         },
         "audio_quota_note": "Ứng dụng gửi tiêu đề, phong cách nhạc và lời bài hát để tạo audio; không gửi tài liệu học gốc đến dịch vụ tạo nhạc. Hãy chọn theo chi phí, thời gian chờ và thiết bị của bạn.",
+        "music_copyright_warning": "Lưu ý bản quyền: Nhạc AI có thể giống giai điệu hoặc lời của bài có sẵn. Hãy dùng lời bạn có quyền sử dụng, nghe lại bản tạo ra và xem điều khoản của model trước khi đăng hoặc dùng thương mại. Nếu bài quá giống một bài có sẵn, hãy kiểm tra quyền sử dụng trước khi đăng.",
+        "music_model_terms_link": "Trang chính thức của model",
+        "music_fal_terms_link": "Điều khoản của fal.ai",
         "vietnamese_vocal_warning": "⚠️ Một số model có thể hát lời tiếng Việt không rõ; kết quả tùy model và lời bài hát. Nếu cần nghe rõ, hãy thử dịch vụ khác và kiểm tra lời trước khi sử dụng.",
         "fal_key_hint": "Hãy nhập key cá nhân ở mục API key bên trái; bản chạy cục bộ cũng có thể đặt trong `.streamlit/secrets.toml`. Phí fal.ai tính cho chủ sở hữu key.",
         "fal_key_missing": "Hãy nhập key fal.ai cá nhân ở mục API key bên trái.",
@@ -315,6 +321,9 @@ translations = {
             "local_acestep": "Pros: no per-generation API fee and can run on your own computer. Cons: requires a separate ACE-Step 1.5 API server; reference hardware is at least 4GB VRAM (6GB with LM) and about 10GB free disk space. Hardware, electricity, setup time, and vocal quality are still factors. In a cloud-hosted app, 127.0.0.1 points to the cloud server, not your computer.",
         },
         "audio_quota_note": "The music service receives the generated title, style, and lyrics; the original study material is not sent to it. Choose based on cost, waiting time, and available hardware.",
+        "music_copyright_warning": "Copyright notice: AI music can resemble existing melodies or lyrics. Use lyrics you have the right to use, listen to the generated track, and check the model's terms before publishing or commercial use. If it closely resembles an existing song, check the rights before sharing it.",
+        "music_model_terms_link": "Official model page",
+        "music_fal_terms_link": "fal.ai terms of service",
         "vietnamese_vocal_warning": "⚠️ Vietnamese lyrics may be hard to understand depending on the model and wording. If clear pronunciation matters, try another service and review the lyrics before using the song.",
         "fal_key_hint": "Enter your own key in API keys in the sidebar; for a local app, you can also set it in `.streamlit/secrets.toml`. fal.ai usage is billed to the key owner.",
         "fal_key_missing": "Enter your own fal.ai key in API keys in the sidebar.",
@@ -1104,13 +1113,20 @@ if st.session_state["song_data"] is not None:
         )
         st.info(t["audio_provider_notes"][audio_provider])
         st.caption(t["audio_quota_note"])
+        st.warning(t["music_copyright_warning"])
+        fal_endpoint = FAL_MUSIC_ENDPOINTS.get(audio_provider)
+        if fal_endpoint:
+            st.caption(
+                f"[{t['music_model_terms_link']}](https://fal.ai/models/{fal_endpoint}) · "
+                f"[{t['music_fal_terms_link']}](https://fal.ai/legal/terms-of-service)"
+            )
+        else:
+            st.caption(f"[{t['music_model_terms_link']}](https://huggingface.co/ACE-Step/Ace-Step1.5)")
         if st.session_state["lang"] == "VI":
             st.warning(t["vietnamese_vocal_warning"])
 
         fal_key_configured = bool(get_runtime_key("FAL_KEY"))
-        provider_needs_fal = audio_provider in {
-            "fal_ace_step", "fal_minimax", "fal_mureka_v8", "fal_lyria_35"
-        }
+        provider_needs_fal = fal_endpoint is not None
         minimax_lyrics_too_long = (
             audio_provider == "fal_minimax" and len(data["lyrics"]) > 3500
         )
@@ -1208,6 +1224,7 @@ if st.session_state["song_data"] is not None:
             data=generated_audio,
             file_name=os.path.basename(generated_path),
             mime=generated_mime,
+            key="generated_song_download",
             use_container_width=True,
         )
 
@@ -1247,6 +1264,7 @@ if saved_files:
         data=song_bytes,
         file_name=selected_song,
         mime=song_mime,
+        key="library_song_download",
         use_container_width=True
     )
 
