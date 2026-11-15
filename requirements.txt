@@ -4,4 +4,4 @@ beautifulsoup4
 pypdf
 python-docx
 Pillow
-google-genai
+google-genai>=2.31.0

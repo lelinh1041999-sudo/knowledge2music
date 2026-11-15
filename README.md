@@ -35,6 +35,8 @@ Copy-Item .streamlit\secrets.example.toml .streamlit\secrets.toml
 6. 完了した曲はアプリ内で再生またはダウンロードできます。
 7. 必要に応じて、手元のMP3/WAVファイルをライブラリに追加します。
 
+要約・作詞には `gemini-4-hydrogen` を使用し、応答を取得できない場合は `gemini-3.5-flash-lite` を試します。実際に使用したモデル名は生成結果に表示します。両モデルには[Gemini APIの無料枠](https://aistudio.google.com/docs/pricing#gemini-4-hydrogen)があります。
+
 ## Chromebook・ブラウザーで使う場合
 
 このアプリはStreamlit Community Cloudに配置できます。GitHubの公開リポジトリを接続し、app.pyを指定して公開すると、Chromebookからブラウザーで開けます。ローカルPCのlocalhost URLはChromebookから利用できません。
@@ -46,12 +48,12 @@ Copy-Item .streamlit\secrets.example.toml .streamlit\secrets.toml
 | 選択肢 | 料金・必要なもの | 長所 | 短所 |
 |---|---|---|---|
 | ACE-Step（fal.ai） | 約**$0.0002/秒**（60秒で約**$0.012**）。`FAL_KEY` とクレジットが必要。 | 低価格で試しやすく、生成時間を指定できる。 | 歌声の明瞭さや歌詞の再現にばらつきがある。 |
-| MiniMax Music 2.6（fal.ai） | **$0.15/曲**。`FAL_KEY` とクレジットが必要。歌詞は最大3,500文字。 | 歌詞とスタイルを別々に指定して、歌入りの完成曲を作れる。 | ACE-Stepより高価。ベトナム語の発音は保証されない。 |
+| MiniMax Music 3.0（fal.ai） | 約**$0.002/秒**（60秒で約**$0.12**）。`FAL_KEY` とクレジットが必要。 | 歌詞とスタイルを別々に指定し、アプリでは最長60秒の曲を生成できる。 | 長い歌詞は途中で切れる場合がある。送信できる歌詞は3,500文字まで。ベトナム語の発音は未確認。 |
 | Mureka V8（fal.ai） | 歌詞を指定すると**$0.045/曲**。歌詞は最大5,000文字。`FAL_KEY` とクレジットが必要。 | 歌詞専用入力があり、日本語を含む複数言語に対応。 | 公式の対応言語一覧にベトナム語がないため、ベトナム語の発音は未確認。 |
 | Google Lyria 3.5（fal.ai） | **$0.10/回**。`FAL_KEY` とクレジットが必要。 | 数分の構成付きフル曲を生成でき、日本語に対応。 | 歌詞はプロンプト経由で渡すため、元の歌詞と完全一致するとは限らない。ベトナム語は公式対応言語一覧にない。 |
 | ACE-Step（ローカルAPI） | 生成ごとのAPI料金なし。ACE-Step 1.5 APIサーバーを別途インストールして起動する。PCの性能・電力・設定作業が必要。 | fal.aiの従量課金を使わず、自分のPC上で生成できる。 | 初期設定と対応するPCが必要。速度や歌声品質はPC性能・モデルに左右される。 |
 
-fal.aiの4モデルは同じ `FAL_KEY` とアカウント残高を使います。表示価格や対応言語は変更される場合があるため、利用前に[ACE-Step](https://fal.ai/models/fal-ai/ace-step)、[MiniMax Music 2.6](https://fal.ai/models/fal-ai/minimax-music/v2.6)、[Mureka V8](https://fal.ai/models/mureka/v8/generate/song)、[Google Lyria 3.5](https://fal.ai/models/google/lyria-3.5)の各ページを確認してください。[Mureka公式FAQ](https://platform.mureka.ai/docs/en/faq.html)と[Lyria 3.5のモデル資料](https://fal.ai/models/google/lyria-3.5/api)では日本語対応が確認できますが、ベトナム語は両モデルの公開対応言語一覧にありません。料金は成功した生成ごとに発生するため、選択肢の説明を確認してから実行してください。
+fal.aiの4モデルは同じ `FAL_KEY` とアカウント残高を使います。表示価格や対応言語は変更される場合があるため、利用前に[ACE-Step](https://fal.ai/models/fal-ai/ace-step)、[MiniMax Music 3.0](https://fal.ai/models/minimax/music-3)、[Mureka V8](https://fal.ai/models/mureka/v8/generate/song)、[Google Lyria 3.5](https://fal.ai/models/google/lyria-3.5)の各ページを確認してください。[Mureka公式FAQ](https://platform.mureka.ai/docs/en/faq.html)と[Lyria 3.5のモデル資料](https://fal.ai/models/google/lyria-3.5/api)では日本語対応が確認できますが、ベトナム語は両モデルの公開対応言語一覧にありません。料金は成功した生成ごとに発生するため、選択肢の説明を確認してから実行してください。
 
 ローカル版の導入は[ACE-Step 1.5公式ガイド](https://github.com/ace-step/ACE-Step-1.5/blob/main/docs/en/INSTALL.md)を参照してください。公式ガイドではPython 3.11–3.12、VRAM 4GB以上（LM使用時6GB以上）、モデル用に約10GBの空き容量が目安です。CPUのみでも動作しますが、大幅に遅くなる場合があります。クラウドにアプリを配置した場合、`127.0.0.1` は利用者のPCではなくアプリのサーバーを指します。
 

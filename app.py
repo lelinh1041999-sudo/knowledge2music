@@ -1,4 +1,4 @@
-import streamlit as st
+import base64
 import json
 import time
 import csv
@@ -7,12 +7,17 @@ import re
 import requests
 import socket
 from datetime import datetime
+from io import BytesIO
 from urllib.parse import urljoin, urlparse
+
+import streamlit as st
 from bs4 import BeautifulSoup
 from pypdf import PdfReader
 import docx
 from PIL import Image, ImageOps
 from google import genai
+
+GEMINI_MODELS = ("gemini-4-hydrogen", "gemini-3.5-flash-lite")
 
 # --- 1. ページ設定とロゴ ---
 st.set_page_config(
@@ -35,6 +40,7 @@ translations = {
         "demo_sample_caption": "これは要約・歌詞の表示例です。音声は生成せず、APIも呼び出していません。",
         "api_keys_title": "🔑 APIキー（このセッションのみ）",
         "gemini_api_key_label": "Gemini APIキー（要約・歌詞用）",
+        "gemini_model_used": "使用したモデル：{model}",
         "fal_api_key_label": "fal.ai APIキー（音楽生成用）",
         "api_keys_privacy": "キーはアプリサーバーのセッションメモリで使い、ファイルには保存しません。各サービスにはアプリサーバー経由で送信されます。信頼できるアプリでのみ入力してください。利用料はキーの所有者に請求されます。",
         "demo_badge": "ℹ️ デモモード: Google OAuth による本人確認は無効です。",
@@ -72,14 +78,14 @@ translations = {
         "audio_provider_label": "🎛️ 音楽生成サービスを選択",
         "audio_provider_options": {
             "fal_ace_step": "ACE-Step（fal.ai・低価格）",
-            "fal_minimax": "MiniMax Music 2.6（fal.ai）",
+            "fal_minimax": "MiniMax Music 3.0（fal.ai）",
             "fal_mureka_v8": "Mureka V8（fal.ai・歌詞を指定）",
             "fal_lyria_35": "Google Lyria 3.5（fal.ai・フル曲）",
             "local_acestep": "ACE-Step（自分のPC・ローカルAPI）"
         },
         "audio_provider_notes": {
             "fal_ace_step": "長所：fal.aiで手軽に使え、現在約$0.0002/秒（60秒で約$0.012）。短所：歌声の明瞭さや歌詞の再現は曲によって差があります。FAL_KEYとクレジットが必要で、他のfal.aiモデルと残高を共有します。",
-            "fal_minimax": "長所：歌詞専用入力とスタイル指定で、歌入りの完成曲を生成。短所：1曲$0.15でACE-Stepより高く、歌詞は最大3,500文字。ベトナム語の発音は保証されません。FAL_KEYとクレジットが必要です。",
+            "fal_minimax": "長所：歌詞とスタイルを個別に指定でき、生成は最長60秒。料金は約$0.002/秒（60秒で約$0.12）。短所：長い歌詞は最後まで歌われないことがあり、ベトナム語の発音は未確認です。FAL_KEYとクレジットが必要です。",
             "fal_mureka_v8": "長所：歌詞を専用入力欄で指定でき、最大5,000文字。短所：ベトナム語は公式対応言語一覧にありません。歌詞を入力した場合は現在$0.045/曲です。FAL_KEYとクレジットが必要で、共有アプリでは設定アカウントに請求されます。",
             "fal_lyria_35": "長所：数分の構成付きフル曲を生成し、日本語に対応。短所：歌詞をプロンプトに含める方式なので、歌詞が完全一致する保証はありません。ベトナム語は公式対応言語一覧にありません。現在$0.10/回。FAL_KEYとクレジットが必要で、共有アプリでは設定アカウントに請求されます。",
             "local_acestep": "長所：APIの従量料金なしで自分のPC上に生成できます。短所：ACE-Step 1.5 APIサーバーの導入が必要で、目安はVRAM 4GB以上（LM使用時6GB以上）と約10GBの空き容量です。PC性能、電気代、設定作業が必要で、歌声の明瞭さは保証されません。クラウドアプリから利用する場合は別途公開接続が必要です。"
@@ -94,7 +100,7 @@ translations = {
         "fal_billing_hint": "fal.aiのアカウントに利用可能なクレジットがあるか確認してください。",
         "local_api_url_hint": "ACE-Step APIサーバーを起動してから選択してください。接続先は `.streamlit/secrets.toml` の `ACESTEP_LOCAL_URL` で設定できます（初期値: `http://127.0.0.1:8001`）。認証を有効にしたサーバーでは `ACESTEP_LOCAL_API_KEY` も設定してください。",
         "local_api_unavailable": "ローカルのACE-Step APIサーバーに接続できません。先にサーバーを起動し、設定したURLとポートを確認してください。",
-        "minimax_lyrics_limit": "MiniMax Music 2.6は歌詞が3,500文字までです。歌詞を短くするか、別のサービスを選んでください。",
+        "minimax_lyrics_limit": "このアプリからMiniMax Music 3.0に送れる歌詞は3,500文字までです。歌詞を短くするか、別のサービスを選んでください。",
         "mureka_lyrics_limit": "Mureka V8は歌詞が5,000文字までです。歌詞を短くしてください。",
         "lyria_lyrics_limit": "Lyria 3.5に送る歌詞は5,000文字までにしてください。",
         "step3_title": "🎧 3. Webプレーヤーと曲のライブラリ",
@@ -113,12 +119,10 @@ translations = {
         "download_label": "⬇️ ダウンロード",
         "url_error": "URLを読み込めませんでした: {error}",
         "gemini_key_missing": "⚠️ 左側の「APIキー」にGemini APIキーを入力してください。ローカル版では secrets.toml にも設定できます。",
-        "model_list_error": "❌ APIキーでモデル一覧を取得できませんでした: {error}",
         "generation_success": "✅ {model} で生成しました。",
-        "no_available_model": "このAPIキーで利用できるテキスト生成モデルがありません。",
+        "gemini_empty_response": "テキストが返されませんでした。",
         "models_failed": "{count} 個のモデルを試しましたが、すべて失敗しました（{models}）。最初のエラー: {detail}",
         "generation_error": "❌ 生成エラー：",
-        "unknown_error": "不明なエラー",
         "fallback_title": "Knowledge2Musicの曲",
         "genre_options": {
             "J-Pop / Anime Opening": "J-Pop／アニメ主題歌",
@@ -153,6 +157,7 @@ translations = {
         "demo_sample_caption": "Đây là ví dụ tóm tắt và lời bài hát; ứng dụng không tạo audio và không gọi API.",
         "api_keys_title": "🔑 API key (chỉ trong phiên này)",
         "gemini_api_key_label": "Gemini API key (tóm tắt và lời bài hát)",
+        "gemini_model_used": "Model đã dùng · {model}",
         "fal_api_key_label": "fal.ai API key (tạo nhạc)",
         "api_keys_privacy": "Key được dùng trong bộ nhớ phiên của máy chủ ứng dụng, không ghi vào file; key được gửi qua máy chủ đến dịch vụ tương ứng. Chỉ nhập key trên ứng dụng bạn tin tưởng. Phí sử dụng do chủ key thanh toán.",
         "demo_badge": "ℹ️ Chế độ demo: chưa xác minh danh tính bằng Google OAuth.",
@@ -190,14 +195,14 @@ translations = {
         "audio_provider_label": "🎛️ Chọn dịch vụ tạo nhạc",
         "audio_provider_options": {
             "fal_ace_step": "ACE-Step (fal.ai · chi phí thấp)",
-            "fal_minimax": "MiniMax Music 2.6 (fal.ai)",
+            "fal_minimax": "MiniMax Music 3.0 (fal.ai)",
             "fal_mureka_v8": "Mureka V8 (fal.ai · nhập lời riêng)",
             "fal_lyria_35": "Google Lyria 3.5 (fal.ai · bài hoàn chỉnh)",
             "local_acestep": "ACE-Step (máy cá nhân · Local API)"
         },
         "audio_provider_notes": {
             "fal_ace_step": "Ưu điểm: dễ dùng qua fal.ai, giá hiện khoảng $0.0002/giây (60 giây khoảng $0.012). Hạn chế: độ rõ của giọng hát và mức giữ nguyên lời có thể khác nhau giữa các bài. Cần FAL_KEY và credit; dùng chung số dư với các model fal.ai khác.",
-            "fal_minimax": "Ưu điểm: có ô nhập lời riêng và mô tả phong cách để tạo bài hoàn chỉnh có vocal. Hạn chế: $0.15/bài, đắt hơn ACE-Step; tối đa 3.500 ký tự và chưa có bảo đảm phát âm tiếng Việt. Cần FAL_KEY và credit.",
+            "fal_minimax": "Ưu điểm: có ô nhập riêng cho lời và phong cách, tạo tối đa 60 giây. Giá khoảng $0.002/giây ($0.12 nếu đủ 60 giây). Hạn chế: lời dài có thể không được hát hết và độ rõ tiếng Việt chưa được kiểm chứng. Cần FAL_KEY và credit.",
             "fal_mureka_v8": "Ưu điểm: có ô nhập lời riêng, hỗ trợ tối đa 5.000 ký tự. Hạn chế: tiếng Việt không có trong danh sách ngôn ngữ được công bố, nên chưa đảm bảo phát âm. Khi gửi lời, giá hiện tại là $0.045/bài. Cần FAL_KEY và credit; nếu dùng app chung, phí tính vào tài khoản đã cấu hình.",
             "fal_lyria_35": "Ưu điểm: tạo bài hoàn chỉnh dài vài phút, có hỗ trợ tiếng Nhật. Hạn chế: app gửi lời trong prompt nên model có thể sửa hoặc bỏ sót lời; tiếng Việt không có trong danh sách ngôn ngữ được công bố. Giá hiện tại là $0.10/lần. Cần FAL_KEY và credit; app chung tính phí vào tài khoản đã cấu hình.",
             "local_acestep": "Ưu điểm: không tính phí API theo từng lần tạo và có thể chạy trên máy cá nhân. Hạn chế: phải cài ACE-Step 1.5 API server; tham khảo VRAM từ 4GB (6GB nếu dùng LM), khoảng 10GB dung lượng trống. Cần máy đủ mạnh, điện và thời gian thiết lập; chất lượng vocal không được bảo đảm. Nếu app chạy trên cloud, 127.0.0.1 là máy chủ cloud, không phải máy của người dùng.",
@@ -212,7 +217,7 @@ translations = {
         "fal_billing_hint": "Kiểm tra tài khoản fal.ai còn credit khả dụng không.",
         "local_api_url_hint": "Hãy khởi chạy ACE-Step API server trước. Có thể cấu hình địa chỉ trong `.streamlit/secrets.toml` bằng `ACESTEP_LOCAL_URL` (mặc định `http://127.0.0.1:8001`). Nếu server bật xác thực, hãy thêm `ACESTEP_LOCAL_API_KEY`.",
         "local_api_unavailable": "Không kết nối được với ACE-Step API server cục bộ. Hãy khởi chạy server trước và kiểm tra URL/cổng đã cấu hình.",
-        "minimax_lyrics_limit": "MiniMax Music 2.6 giới hạn lời bài hát ở 3.500 ký tự. Hãy rút ngắn lời hoặc chọn dịch vụ khác.",
+        "minimax_lyrics_limit": "App gửi tối đa 3.500 ký tự lời sang MiniMax Music 3.0. Hãy rút ngắn lời hoặc chọn dịch vụ khác.",
         "mureka_lyrics_limit": "Mureka V8 giới hạn lời bài hát ở 5.000 ký tự. Hãy rút ngắn lời.",
         "lyria_lyrics_limit": "Lời gửi cho Lyria 3.5 cần tối đa 5.000 ký tự.",
         "step3_title": "🎧 3. Trình phát nhạc và thư viện trên Web",
@@ -231,12 +236,10 @@ translations = {
         "download_label": "⬇️ Tải xuống",
         "url_error": "Không thể tải URL: {error}",
         "gemini_key_missing": "⚠️ Hãy nhập Gemini API key ở mục API key bên trái; bản chạy cục bộ cũng có thể đặt trong secrets.toml.",
-        "model_list_error": "❌ Không thể lấy danh sách model bằng API key: {error}",
         "generation_success": "✅ Đã tạo thành công bằng model: {model}",
-        "no_available_model": "Tài khoản API key này hiện không có model tạo văn bản khả dụng.",
+        "gemini_empty_response": "Model không trả về văn bản.",
         "models_failed": "Đã thử {count} model nhưng đều thất bại ({models}). Lỗi đầu tiên: {detail}",
         "generation_error": "❌ Lỗi tạo nội dung:",
-        "unknown_error": "Không xác định",
         "fallback_title": "Bài hát Knowledge2Music",
         "genre_options": {
             "J-Pop / Anime Opening": "J-Pop / Nhạc mở đầu anime",
@@ -271,6 +274,7 @@ translations = {
         "demo_sample_caption": "This is a sample summary and lyric output. It does not create audio or call an API.",
         "api_keys_title": "🔑 API keys (this session only)",
         "gemini_api_key_label": "Gemini API key (summary and lyrics)",
+        "gemini_model_used": "Model used · {model}",
         "fal_api_key_label": "fal.ai API key (music generation)",
         "api_keys_privacy": "Keys are used in this app server's session memory, not written to files, and sent through the server to the selected service. Enter keys only in an app you trust. Usage is billed to the key owner.",
         "demo_badge": "ℹ️ Demo mode: Google OAuth identity verification is off.",
@@ -308,14 +312,14 @@ translations = {
         "audio_provider_label": "🎛️ Choose a music service",
         "audio_provider_options": {
             "fal_ace_step": "ACE-Step (fal.ai · low cost)",
-            "fal_minimax": "MiniMax Music 2.6 (fal.ai)",
+            "fal_minimax": "MiniMax Music 3.0 (fal.ai)",
             "fal_mureka_v8": "Mureka V8 (fal.ai · custom lyrics)",
             "fal_lyria_35": "Google Lyria 3.5 (fal.ai · full song)",
             "local_acestep": "ACE-Step (your computer · Local API)"
         },
         "audio_provider_notes": {
             "fal_ace_step": "Pros: easy to access through fal.ai and currently about $0.0002/sec ($0.012 for 60 sec). Cons: vocal clarity and lyric fidelity can vary by song. Requires FAL_KEY and credits shared with the other fal.ai models.",
-            "fal_minimax": "Pros: separate lyrics and style inputs for complete vocal tracks. Cons: $0.15/song, more than ACE-Step; 3,500-character lyric limit, and Vietnamese pronunciation is not assured. Requires FAL_KEY and credits.",
+            "fal_minimax": "Pros: separate lyrics and style inputs, with up to 60 seconds of audio. About $0.002/second ($0.12 for 60 seconds). Cons: long lyrics may be cut short, and Vietnamese pronunciation has yet to be verified. Requires FAL_KEY and credits.",
             "fal_mureka_v8": "Pros: separate lyrics input, up to 5,000 characters. Cons: Vietnamese is not in the published language list, so pronunciation is not assured. Current price with supplied lyrics is $0.045/song. Requires FAL_KEY and fal.ai credits; shared apps charge the configured account.",
             "fal_lyria_35": "Pros: generates structured full songs up to a few minutes and supports Japanese. Cons: lyrics are embedded in the prompt, so exact wording may change; Vietnamese is not in the published language list. Current price is $0.10/generation. Requires FAL_KEY and credits; shared apps charge the configured account.",
             "local_acestep": "Pros: no per-generation API fee and can run on your own computer. Cons: requires a separate ACE-Step 1.5 API server; reference hardware is at least 4GB VRAM (6GB with LM) and about 10GB free disk space. Hardware, electricity, setup time, and vocal quality are still factors. In a cloud-hosted app, 127.0.0.1 points to the cloud server, not your computer.",
@@ -330,7 +334,7 @@ translations = {
         "fal_billing_hint": "Check that your fal.ai account has available credits.",
         "local_api_url_hint": "Start the ACE-Step API server first. Set its address in `.streamlit/secrets.toml` as `ACESTEP_LOCAL_URL` (default: `http://127.0.0.1:8001`). If the server requires authentication, also set `ACESTEP_LOCAL_API_KEY`.",
         "local_api_unavailable": "The local ACE-Step API server is not reachable. Start it first and check the configured URL and port.",
-        "minimax_lyrics_limit": "MiniMax Music 2.6 supports up to 3,500 lyric characters. Shorten the lyrics or choose another service.",
+        "minimax_lyrics_limit": "The app sends up to 3,500 lyric characters to MiniMax Music 3.0. Shorten the lyrics or choose another service.",
         "mureka_lyrics_limit": "Mureka V8 supports up to 5,000 lyric characters. Shorten the lyrics.",
         "lyria_lyrics_limit": "Lyrics sent to Lyria 3.5 must be 5,000 characters or fewer.",
         "step3_title": "🎧 3. Web audio player and library",
@@ -349,12 +353,10 @@ translations = {
         "download_label": "⬇️ Download",
         "url_error": "Could not load URL: {error}",
         "gemini_key_missing": "⚠️ Enter a Gemini API key in API keys in the sidebar; for a local app, you can also set it in secrets.toml.",
-        "model_list_error": "❌ Could not list models with this API key: {error}",
         "generation_success": "✅ Generated successfully with model: {model}",
-        "no_available_model": "No text generation models are available for this API key.",
+        "gemini_empty_response": "The model returned no text.",
         "models_failed": "All {count} models failed ({models}). First error: {detail}",
         "generation_error": "❌ Generation error:",
-        "unknown_error": "Unknown",
         "fallback_title": "Knowledge2Music Song",
         "genre_options": {
             "J-Pop / Anime Opening": "J-Pop / Anime Opening",
@@ -479,9 +481,10 @@ def get_demo_song(language):
 
 
 FAL_QUEUE_BASE_URL = "https://queue.fal.run/"
+MINIMAX_LYRICS_LIMIT = 3500
 FAL_MUSIC_ENDPOINTS = {
     "fal_ace_step": "fal-ai/ace-step",
-    "fal_minimax": "fal-ai/minimax-music/v2.6",
+    "fal_minimax": "minimax/music-3",
     "fal_mureka_v8": "mureka/v8/generate/song",
     "fal_lyria_35": "google/lyria-3.5",
 }
@@ -524,12 +527,19 @@ def generate_audio_with_fal(song_data, model="fal_ace_step", duration=60):
     music_prompt = f"{song_data.get('title', '')}; {song_data['tags']}".strip("; ")
     lyrics = str(song_data["lyrics"])
     if model == "fal_minimax":
-        if len(lyrics) > 3500:
-            raise RuntimeError("MiniMax Music 2.6 supports up to 3,500 lyric characters.")
+        if len(lyrics) > MINIMAX_LYRICS_LIMIT:
+            raise RuntimeError(f"The app sends up to {MINIMAX_LYRICS_LIMIT:,} lyric characters to MiniMax Music 3.0.")
+        # MiniMax drops text on the same line as a section tag.
+        minimax_lyrics = re.sub(
+            r"(?im)^[ \t]*\[(intro|verse|pre-chorus|chorus|post-chorus|bridge|instrumental|solo|outro)(?: +[0-9]+)?\][ \t]*(?:\r?\n)?",
+            lambda match: f"[{match[1].lower()}]\n",
+            lyrics,
+        )
         payload = {
             "prompt": music_prompt[:2000],
-            "lyrics": lyrics,
-            "is_instrumental": False,
+            "lyrics": minimax_lyrics,
+            "duration": duration,
+            "enable_safety_checker": True,
         }
     elif model == "fal_mureka_v8":
         if len(lyrics) > 5000:
@@ -979,6 +989,8 @@ if st.button(t["btn_generate"], type="primary", use_container_width=True):
                 Mood/Tempo: {vibe}.
                 Vocal Style: {vocal_style}.
                 User's Custom Request: {custom_prompt}.
+                Base the summary and lyrics on the study material. Keep definitions, formulas, numbers,
+                and exceptions accurate. Include the most important facts from the summary in the chorus.
 
                 Strictly format your output using EXACTLY these 4 headers:
                 ===TITLE===
@@ -994,66 +1006,41 @@ if st.button(t["btn_generate"], type="primary", use_container_width=True):
                 (Structured song lyrics in {lang_name} with section labels like [Intro], [Verse 1], [Chorus], [Verse 2], [Chorus], [Outro]. Make the rhymes catchy so students can memorize the facts.)
                 """
 
-                contents = [system_instruction]
+                contents = [{"type": "text", "text": system_instruction}]
                 if extracted_text.strip():
-                    contents.append(f"Study Material:\n{extracted_text}")
-                contents.extend(pil_images)
+                    contents.append({"type": "text", "text": f"Study Material:\n{extracted_text}"})
+                for image in pil_images:
+                    with BytesIO() as buffer:
+                        image.save(buffer, format="PNG")
+                        contents.append({
+                            "type": "image",
+                            "mime_type": "image/png",
+                            "data": base64.b64encode(buffer.getvalue()).decode("ascii"),
+                        })
 
-                # APIキーで利用可能なモデル一覧をGoogleサーバーから取得
-                available_models = []
-                try:
-                    for m in client.models.list():
-                        m_name = getattr(m, "name", "")
-                        actions = (
-                            getattr(m, "supported_actions", None)
-                            or getattr(m, "supported_generation_methods", None)
-                            or []
-                        )
-                        # 画像・音声・埋め込みモデルを除外し、テキスト生成用のGeminiモデルだけを選択
-                        skip_keywords = ["tts", "image", "imagen", "veo", "embedding", "aqa", "audio", "robotics", "computer-use"]
-                        if "gemini" in m_name.lower() and not any(k in m_name.lower() for k in skip_keywords):
-                            if not actions or "generateContent" in actions:
-                                available_models.append(m_name)
-                except Exception as list_err:
-                    st.error(t["model_list_error"].format(error=list_err))
-                    st.stop()
-
-                # 高速で利用枠を節約できるFlashモデルを優先
-                available_models.sort(
-                    key=lambda x: (0 if "flash" in x.lower() else 1, x),
-                    reverse=False
-                )
-
-                if not available_models:
-                    raise RuntimeError(t["no_available_model"])
-
-                response = None
-                error_logs = []
-
-                for tm in available_models:
+                errors = []
+                for model in GEMINI_MODELS:
                     try:
-                        response = client.models.generate_content(
-                            model=tm,
-                            contents=contents
+                        interaction = client.interactions.create(
+                            model=model,
+                            input=contents,
+                            store=False,
+                            timeout=45,
                         )
-                        if response and response.text:
-                            st.toast(t["generation_success"].format(model=tm))
+                        raw_out = (interaction.output_text or "").strip()
+                        if raw_out:
                             break
+                        errors.append(f"{model}: {t['gemini_empty_response']}")
                     except Exception as err:
-                        error_logs.append(f"{tm}: {err}")
-                        continue
-
-                if response is None:
-                    # 最初のモデルのエラーを表示して原因を確認
+                        errors.append(f"{model}: {err}")
+                else:
                     raise RuntimeError(
                         t["models_failed"].format(
-                            count=len(available_models),
-                            models=", ".join(available_models[:4]) + "...",
-                            detail=error_logs[0] if error_logs else t["unknown_error"],
+                            count=len(GEMINI_MODELS),
+                            models=", ".join(GEMINI_MODELS),
+                            detail=errors[0],
                         )
                     )
-
-                raw_out = response.text
 
                 # 生成結果を各セクションに分割
                 title_val = t["fallback_title"]
@@ -1081,7 +1068,9 @@ if st.button(t["btn_generate"], type="primary", use_container_width=True):
                     "tags": tags_val.strip(),
                     "lyrics": lyrics_val.strip(),
                     "is_demo_sample": False,
+                    "gemini_model": model,
                 }
+                st.toast(t["generation_success"].format(model=model))
         except Exception as e:
             st.error(f"{t['generation_error']} {e}")
 
@@ -1093,6 +1082,8 @@ if st.session_state["song_data"] is not None:
     st.caption(t["step2_guide"])
     if data.get("is_demo_sample"):
         st.info(t["demo_sample_caption"])
+    elif data.get("gemini_model"):
+        st.caption(t["gemini_model_used"].format(model=data["gemini_model"]))
 
     col_s1, col_s2 = st.columns([1, 1])
     with col_s1:
@@ -1128,7 +1119,7 @@ if st.session_state["song_data"] is not None:
         fal_key_configured = bool(get_runtime_key("FAL_KEY"))
         provider_needs_fal = fal_endpoint is not None
         minimax_lyrics_too_long = (
-            audio_provider == "fal_minimax" and len(data["lyrics"]) > 3500
+            audio_provider == "fal_minimax" and len(data["lyrics"]) > MINIMAX_LYRICS_LIMIT
         )
         mureka_lyrics_too_long = (
             audio_provider == "fal_mureka_v8" and len(data["lyrics"]) > 5000
