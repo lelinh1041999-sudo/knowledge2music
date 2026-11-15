@@ -203,7 +203,7 @@ def validate_cues(cues, duration):
         previous = start
 
 
-def render_lyric_video(audio_path, title, duration, cues, theme, image=None, scenes=None, waveform=True):
+def render_lyric_video(audio_path, title, duration, cues, theme, image=None, scenes=None, waveform=True, show_lyrics=True):
     validate_cues(cues, duration)
     slides = list(cues)
     if slides and slides[0]["start"] > 0:
@@ -218,7 +218,7 @@ def render_lyric_video(audio_path, title, duration, cues, theme, image=None, sce
         for i, cue in enumerate(slides):
             next_start = slides[i + 1]["start"] if i + 1 < len(slides) else duration
             name = f"card-{i:04d}.png"
-            _draw_card(background, accent, title, cue["lyrics"]).save(folder / name)
+            _draw_card(background, accent, title, cue["lyrics"] if show_lyrics else "").save(folder / name)
             concat.extend((f"file '{name}'", f"duration {next_start - cue['start']:.6f}"))
         concat.append(f"file '{name}'")  # Give the last card a closing timestamp.
         playlist = folder / "video.ffconcat"

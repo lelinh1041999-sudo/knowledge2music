@@ -103,11 +103,12 @@ translations = {
         "video_background_modes": {"simple": "テーマ・画像", "ai": "AI動画 · LTX-2.5（無料枠）"},
         "video_prompt": "曲に合わせた映像の指示",
         "video_prompt_example": "Verse: 暗い教室で論理回路がゆっくり光る\nChorus: 青い光が回路全体を走る",
-        "video_ai_note": "全体の指示や、Verse・Chorusなど区間ごとの指示を書けます。最大3種類の短い映像を作り、各区間で繰り返します。指示と曲のジャンル・雰囲気は公開のHugging Face Spaceに送信されます。共有GPUには利用枠と待ち時間があります。",
+        "video_ai_note": "Verse・Chorusなど区間ごとに、最大3種類の短い背景映像を指定できます。映像は音声と別に生成し、各区間で繰り返します。指示と曲のジャンル・雰囲気は共有GPUを使う公開のHugging Face Spaceに送信されます。",
         "video_ai_limit": "AI背景を作れるのは最初の3種類です。残りにはテーマ背景を使用しました。",
         "video_ai_unavailable": "一部のAI背景を作成できなかったため、その区間にはテーマ背景を使用しました。",
         "video_scene_unmatched": "歌詞の区間名と一致する映像指示がありませんでした。Verse・Chorusなどの区間名を確認してください。",
         "video_waveform": "音に反応する波形を表示",
+        "video_show_lyrics": "動画に歌詞を表示",
         "video_section": "歌詞の区間",
         "video_ai_rendering": "AIで背景動画を生成しています…",
         "video_background": "背景画像（任意）",
@@ -247,11 +248,12 @@ translations = {
         "video_background_modes": {"simple": "Tông màu hoặc ảnh", "ai": "Video AI · LTX-2.5 (hạn mức miễn phí)"},
         "video_prompt": "Chỉ dẫn video theo bài hát",
         "video_prompt_example": "Verse: lớp học tối, mạch logic sáng dần\nChorus: ánh đèn xanh chạy qua toàn bộ mạch",
-        "video_ai_note": "Ghi chỉ dẫn cho cả bài hoặc theo từng đoạn như Verse và Chorus. App tạo tối đa 3 cảnh ngắn và lặp trong từng đoạn. Chỉ dẫn, thể loại và không khí bài hát được gửi đến một Hugging Face Space công khai có hạn mức GPU miễn phí.",
+        "video_ai_note": "Ghi chỉ dẫn cho cả bài hoặc theo từng đoạn như Verse và Chorus. LTX tạo tối đa 3 cảnh nền ngắn độc lập với audio, rồi app lặp cảnh theo đoạn. Chỉ dẫn, thể loại và không khí bài hát được gửi đến một Hugging Face Space công khai có hạn mức GPU miễn phí.",
         "video_ai_limit": "App chỉ tạo 3 cảnh AI đầu tiên. Các cảnh còn lại dùng nền theo tông màu đã chọn.",
         "video_ai_unavailable": "Một số cảnh AI không tạo được. Các đoạn đó dùng nền theo tông màu đã chọn.",
         "video_scene_unmatched": "Chỉ dẫn chưa khớp với đoạn nào trong lời bài hát. Kiểm tra lại tên đoạn, ví dụ Verse hoặc Chorus.",
         "video_waveform": "Hiện sóng âm chạy theo nhạc",
+        "video_show_lyrics": "Hiện lời bài hát trên video",
         "video_section": "Đoạn lời",
         "video_ai_rendering": "AI đang tạo cảnh nền…",
         "video_background": "Ảnh nền (tùy chọn)",
@@ -391,11 +393,12 @@ translations = {
         "video_background_modes": {"simple": "Theme or image", "ai": "AI video · LTX-2.5 (free quota)"},
         "video_prompt": "Video direction for this song",
         "video_prompt_example": "Verse: a dark classroom with a circuit slowly lighting up\nChorus: blue light sweeps across the circuit",
-        "video_ai_note": "Write directions for the whole song or use section names such as Verse and Chorus. Up to three short scenes loop within their sections. Directions, music genre and mood are sent to a public Hugging Face Space with a free GPU quota.",
+        "video_ai_note": "Write directions for the whole song or use section names such as Verse and Chorus. Up to three short background scenes are generated separately from the audio and loop within their sections. The directions, genre and mood are sent to a public Hugging Face Space with a free GPU quota.",
         "video_ai_limit": "The first three AI scenes were used. Other sections use the selected color theme.",
         "video_ai_unavailable": "Some AI scenes could not be generated. Those sections use the selected color theme.",
         "video_scene_unmatched": "No scene directions matched the lyrics. Check the section names, such as Verse or Chorus.",
         "video_waveform": "Show an audio-reactive waveform",
+        "video_show_lyrics": "Show lyrics on the video",
         "video_section": "Lyric section",
         "video_ai_rendering": "Generating the background clip…",
         "video_background": "Background image (optional)",
@@ -1211,6 +1214,7 @@ if st.session_state["song_data"] is not None:
 
     with st.expander(t["video_settings"], expanded=True):
         video_theme = st.selectbox(t["video_theme"], list(THEMES), format_func=t["video_themes"].get)
+        video_show_lyrics = st.checkbox(t["video_show_lyrics"], value=True, key="video_show_lyrics")
         video_waveform = st.checkbox(t["video_waveform"], value=True, key="video_waveform")
         video_mode = st.radio(t["video_background_mode"], ["simple", "ai"], format_func=t["video_background_modes"].get)
         video_background = None
@@ -1437,12 +1441,12 @@ if st.session_state["song_data"] is not None:
                         background.thumbnail((1920, 1080))
                         video_bytes = render_lyric_video(
                             generated_path, data["title"], timing["duration"], cues, video_theme,
-                            image=background, waveform=video_waveform,
+                            image=background, waveform=video_waveform, show_lyrics=video_show_lyrics,
                         )
                 else:
                     video_bytes = render_lyric_video(
                         generated_path, data["title"], timing["duration"], cues, video_theme,
-                        scenes=scenes, waveform=video_waveform,
+                        scenes=scenes, waveform=video_waveform, show_lyrics=video_show_lyrics,
                     )
             st.session_state["generated_video"] = video_bytes
             st.session_state["video_scene_notices"] = notices
