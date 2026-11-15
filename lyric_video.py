@@ -16,7 +16,12 @@ THEMES = {
     "plum": ((35, 16, 43), (240, 167, 230)),
     "forest": ((12, 39, 32), (170, 233, 186)),
 }
-SECTION = re.compile(r"^\s*\[(?:intro|verse|pre[- ]chorus|chorus|post[- ]chorus|bridge|hook|instrumental|solo|outro)(?:\s+\d+)?\]\s*", re.I)
+SECTION_NAME = r"(?:intro|verse|pre[- ]chorus|chorus|post[- ]chorus|bridge|hook|instrumental|solo|outro)(?:\s+\d+)?"
+SECTION = re.compile(rf"^\s*\[({SECTION_NAME})\]\s*", re.I)
+SCENE_ALIASES = {
+    "mở đầu": "intro", "đoạn": "verse", "điệp khúc": "chorus", "chuyển đoạn": "bridge", "kết": "outro",
+    "イントロ": "intro", "aメロ": "verse", "サビ": "chorus", "間奏": "bridge", "アウトロ": "outro",
+}
 CJK = re.compile(r"[\u3000-\u30ff\u3400-\u9fff\uff00-\uffef]")
 
 
@@ -48,26 +53,65 @@ def audio_duration(audio_path):
 
 
 def estimate_cues(lyrics, duration):
-    sections = [[]]
+    sections = [("verse", [])]
     for line in lyrics.splitlines():
         label = SECTION.match(line)
-        if label and sections[-1]:
-            sections.append([])
+        if label:
+            name = " ".join(label[1].lower().replace("-", " ").split())
+            sections.append((name, []))
         text = line[label.end():].strip() if label else line.strip()
         if text:
-            sections[-1].append(text)
+            sections[-1][1].append(text)
 
-    groups = ["\n".join(lines[i:i + 3]) for lines in sections for i in range(0, len(lines), 3)]
+    groups = [(section, "\n".join(lines[i:i + 3])) for section, lines in sections for i in range(0, len(lines), 3)]
     if not groups:
         raise ValueError("Add lyrics before making a lyric video.")
-    weights = [max(8, len(text)) for text in groups]
+    has_silent_intro = sections[:2] == [("verse", []), ("intro", [])]
+    lead_in = min(4, duration * 0.07) if has_silent_intro else 0
+    weights = [max(8, len(text)) for _, text in groups]
     total_weight = sum(weights)
     elapsed = 0
     cues = []
-    for text, weight in zip(groups, weights):
-        cues.append({"start": round(duration * elapsed / total_weight, 3), "lyrics": text})
+    for (section, text), weight in zip(groups, weights):
+        start = lead_in + (duration - lead_in) * elapsed / total_weight
+        cues.append({"start": round(start, 3), "lyrics": text, "section": section})
         elapsed += weight
     return cues
+
+
+def scene_timeline(brief, cues, genre="", mood=""):
+    """Apply named scene directions to the caption timings."""
+    general = []
+    directions = {}
+    for line in brief.splitlines():
+        label, separator, description = line.replace("：", ":", 1).partition(":")
+        key = " ".join(label.strip(" []\t").casefold().replace("-", " ").split())
+        numbered = re.fullmatch(r"(.+?)( \d+)?", key)
+        if numbered:
+            key = SCENE_ALIASES.get(numbered[1], numbered[1]) + (numbered[2] or "")
+        if separator and re.fullmatch(SECTION_NAME, key, flags=re.I):
+            if description.strip():
+                directions[key] = description.strip()
+        elif line.strip():
+            general.append(line.strip())
+
+    broad = " ".join(general)
+    style = ", ".join(part for part in (genre, mood) if part)
+    starts = [(cue["start"], cue.get("section", "verse")) for cue in cues]
+    if starts and starts[0][0] > 0:
+        starts.insert(0, (0, "intro"))
+    timeline = []
+    for start, section in starts:
+        base = re.sub(r"\s+\d+$", "", section)
+        specific = directions.get(section) or directions.get(base)
+        description = " ".join(part for part in (broad, specific) if part)
+        prompt = None
+        if description:
+            prompt = f"{description} Music mood: {style}." if style else description
+            prompt += " Background animation for a lyric video, leave clear space for captions."
+        if not timeline or timeline[-1][1] != prompt:
+            timeline.append((start, prompt))
+    return timeline
 
 
 def _video_font(text, size):
@@ -119,10 +163,10 @@ def _make_background(color, image):
     return background
 
 
-def _draw_card(background, accent, title, text, progress):
+def _draw_card(background, accent, title, text):
     frame = background.copy()
     draw = ImageDraw.Draw(frame)
-    w, h = FRAME_SIZE
+    w, _ = FRAME_SIZE
     title_font = _video_font(title, 29)
     title_line = _wrap_lyrics(" ".join(title.split()), title_font, w - 128)
     if title_line:
@@ -139,18 +183,14 @@ def _draw_card(background, accent, title, text, progress):
                 break
         else:
             raise ValueError("A caption is too long for one slide. Shorten that caption in the timing editor.")
-        first_y = 301 - (len(lines) - 1) * row_height / 2
+        first_y = 274 - (len(lines) - 1) * row_height / 2
         for i, line in enumerate(lines):
             draw.text((w / 2, first_y + i * row_height), line, font=font,
-                      fill=(250, 248, 255), anchor="mm")
-
-    draw.rounded_rectangle((64, h - 44, w - 64, h - 37), radius=4, fill=(95, 103, 119))
-    draw.rounded_rectangle((64, h - 44, 64 + (w - 128) * progress, h - 37),
-                           radius=4, fill=accent)
+                      fill=(250, 248, 255), anchor="mm", stroke_width=2, stroke_fill=(16, 17, 26))
     return frame
 
 
-def render_lyric_video(audio_path, title, duration, cues, theme, image=None, background_video=None):
+def validate_cues(cues, duration):
     if not cues:
         raise ValueError("Add lyrics before making a lyric video.")
     previous = -1
@@ -162,11 +202,15 @@ def render_lyric_video(audio_path, title, duration, cues, theme, image=None, bac
             raise ValueError("Each caption needs lyrics.")
         previous = start
 
+
+def render_lyric_video(audio_path, title, duration, cues, theme, image=None, scenes=None, waveform=True):
+    validate_cues(cues, duration)
     slides = list(cues)
     if slides and slides[0]["start"] > 0:
         slides.insert(0, {"start": 0, "lyrics": ""})
     color, accent = THEMES[theme]
-    background = Image.new("RGBA", FRAME_SIZE) if background_video else _make_background(color, image)
+    animated = scenes and any(clip for _, clip in scenes)
+    background = Image.new("RGBA", FRAME_SIZE) if animated else _make_background(color, image)
 
     with TemporaryDirectory(prefix="knowledge2music-video-") as tmp:
         folder = Path(tmp)
@@ -174,27 +218,29 @@ def render_lyric_video(audio_path, title, duration, cues, theme, image=None, bac
         for i, cue in enumerate(slides):
             next_start = slides[i + 1]["start"] if i + 1 < len(slides) else duration
             name = f"card-{i:04d}.png"
-            _draw_card(background, accent, title, cue["lyrics"], next_start / duration).save(folder / name)
+            _draw_card(background, accent, title, cue["lyrics"]).save(folder / name)
             concat.extend((f"file '{name}'", f"duration {next_start - cue['start']:.6f}"))
         concat.append(f"file '{name}'")  # Give the last card a closing timestamp.
         playlist = folder / "video.ffconcat"
         playlist.write_text("\n".join(concat) + "\n", encoding="ascii")
         output = folder / "lyric-video.mp4"
         sources = ["-f", "concat", "-safe", "1", "-i", playlist, "-i", audio_path]
-        video_filter = ["-map", "0:v:0", "-vf", "fps=24"]
-        if background_video:
-            clip = folder / "background.mp4"
-            clip.write_bytes(background_video)
-            sources.extend(["-stream_loop", "-1", "-i", clip])
-            video_filter = [
-                "-filter_complex_threads", "2", "-filter_complex",
-                "[2:v]scale=960:540:force_original_aspect_ratio=increase,crop=960:540,setsar=1,"
-                "fps=24,eq=brightness=-0.21[background];"
-                "[0:v]fps=24[captions];[background][captions]overlay=shortest=1[video]",
-                "-map", "[video]",
-            ]
+        filters = ["[0:v]fps=24[captions]"]
+        output_label = "captions"
+        if animated:
+            _add_scene_filters(folder, scenes, duration, color, sources, filters)
+            filters.append("[background][captions]overlay=shortest=1[scenes_with_captions]")
+            output_label = "scenes_with_captions"
+        if waveform:
+            accent_hex = "".join(f"{channel:02x}" for channel in accent)
+            filters.extend([
+                f"[1:a]aformat=channel_layouts=mono,showwaves=s=832x52:r=24:mode=cline:colors=0x{accent_hex},format=rgba,colorkey=black:0.04[wave]",
+                f"[{output_label}][wave]overlay=x=64:y=457:eof_action=pass[video]",
+            ])
+            output_label = "video"
         result = _ffmpeg(
-            "-loglevel", "error", *sources, *video_filter, "-map", "1:a:0", "-t", f"{duration:.3f}",
+            "-loglevel", "error", *sources, "-filter_complex_threads", "2", "-filter_complex", ";".join(filters),
+            "-map", f"[{output_label}]", "-map", "1:a:0", "-t", f"{duration:.3f}",
             "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
             "-pix_fmt", "yuv420p", "-threads", "2", "-c:a", "aac", "-b:a", "160k",
             "-movflags", "+faststart", output, timeout=240,
@@ -202,3 +248,27 @@ def render_lyric_video(audio_path, title, duration, cues, theme, image=None, bac
         if result.returncode or not output.is_file() or not output.stat().st_size:
             raise RuntimeError("FFmpeg could not encode the lyric video.")
         return output.read_bytes()
+
+
+def _add_scene_filters(folder, scenes, duration, color, sources, filters):
+    clip_paths = {}
+    next_input = 2
+    color_hex = "".join(f"{channel:02x}" for channel in color)
+    for i, (start, clip) in enumerate(scenes):
+        end = scenes[i + 1][0] if i + 1 < len(scenes) else duration
+        seconds = f"{end - start:.6f}"
+        if clip:
+            if clip not in clip_paths:
+                path = folder / f"scene-{i}.mp4"
+                path.write_bytes(clip)
+                clip_paths[clip] = path
+            sources.extend(["-threads", "1", "-stream_loop", "-1", "-i", clip_paths[clip]])
+            filters.append(
+                f"[{next_input}:v]scale=960:540:force_original_aspect_ratio=increase,crop=960:540,"
+                f"setsar=1,fps=24,eq=brightness=-0.25,trim=duration={seconds},setpts=PTS-STARTPTS[scene{i}]"
+            )
+            next_input += 1
+        else:
+            filters.append(f"color=c=0x{color_hex}:s=960x540:r=24:d={seconds}[scene{i}]")
+    labels = "".join(f"[scene{i}]" for i in range(len(scenes)))
+    filters.append(f"{labels}concat=n={len(scenes)}:v=1:a=0[background]")
