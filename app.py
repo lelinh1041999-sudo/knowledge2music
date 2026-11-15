@@ -16,6 +16,8 @@ from pypdf import PdfReader
 import docx
 from PIL import Image, ImageOps
 from google import genai
+from lyric_video import THEMES, audio_duration, estimate_cues, render_lyric_video
+from video_background import generate_background
 
 GEMINI_MODELS = ("gemini-4-hydrogen", "gemini-3.5-flash-lite")
 
@@ -70,7 +72,26 @@ translations = {
         "error_cooldown": "⏳ 連続リクエスト防止のため、あと {sec} 秒お待ちください。",
         "step2_title": "🎸 2. アプリ内でボーカル曲を生成",
         "step2_guide": "タイトル、スタイル、歌詞を使って、この画面で曲を生成します。",
-        "btn_generate_audio": "🎵 選択したサービスで曲を生成",
+        "btn_generate_audio": "🎵 曲を生成",
+        "btn_generate_video": "🎬 歌詞動画を作成",
+        "video_settings": "歌詞動画の設定",
+        "video_timing": "歌詞と表示時刻を調整",
+        "video_background_mode": "背景の種類",
+        "video_background_modes": {"simple": "テーマ・画像", "ai": "AI動画 · LTX-2.5（無料枠）"},
+        "video_prompt": "背景シーンの説明",
+        "video_ai_note": "LTX-2.5で約2秒の背景動画を作り、歌に合わせて繰り返します。背景シーンの説明が公開のHugging Face Spaceに送信されます。共有GPUには無料枠と待ち時間があります。",
+        "video_ai_rendering": "AIで背景動画を生成しています…",
+        "video_background": "背景画像（任意）",
+        "video_theme": "テーマカラー",
+        "video_themes": {"night": "ネイビー", "plum": "プラム", "forest": "フォレスト"},
+        "video_reuse": "この曲の音声を使います。曲の生成料金は追加されません。",
+        "video_timing_note": "表示時刻は目安です。秒数や歌詞を調整し、もう一度「歌詞動画を作成」を押すと反映されます。",
+        "video_start": "表示開始（秒）",
+        "video_caption": "表示する歌詞",
+        "video_rendering": "歌詞動画を作成しています…",
+        "video_error": "歌詞動画を作成できませんでした",
+        "video_preview": "歌詞動画",
+        "video_download": "⬇️ MP4をダウンロード",
         "status_generating_audio": "選択したサービスで曲を生成中です...",
         "audio_ready": "✅ 曲を生成して保存しました。",
         "audio_error": "曲を生成できませんでした:",
@@ -187,7 +208,26 @@ translations = {
         "error_cooldown": "⏳ Hệ thống chống spam: Vui lòng đợi {sec} giây trước khi tạo tiếp.",
         "step2_title": "🎸 2. Tạo bài hát ngay trong ứng dụng",
         "step2_guide": "Ứng dụng dùng tiêu đề, phong cách và lời bài hát để tạo audio có giọng hát ngay tại đây.",
-        "btn_generate_audio": "🎵 Tạo bài hát bằng dịch vụ đã chọn",
+        "btn_generate_audio": "🎵 Tạo nhạc",
+        "btn_generate_video": "🎬 Tạo video lời bài hát",
+        "video_settings": "Cài đặt video lời bài hát",
+        "video_timing": "Chỉnh lời và thời điểm hiển thị",
+        "video_background_mode": "Kiểu nền",
+        "video_background_modes": {"simple": "Tông màu hoặc ảnh", "ai": "Video AI · LTX-2.5 (hạn mức miễn phí)"},
+        "video_prompt": "Mô tả cảnh nền muốn tạo",
+        "video_ai_note": "LTX-2.5 tạo clip nền khoảng 2 giây rồi app lặp clip theo độ dài bài hát. Phần mô tả cảnh được gửi đến Hugging Face Space công khai. GPU chia sẻ có hạn mức miễn phí và có thể phải chờ.",
+        "video_ai_rendering": "AI đang tạo cảnh nền…",
+        "video_background": "Ảnh nền (tùy chọn)",
+        "video_theme": "Tông màu",
+        "video_themes": {"night": "Xanh đêm", "plum": "Tím mận", "forest": "Xanh rừng"},
+        "video_reuse": "Video dùng lại bài đã tạo, không phát sinh thêm phí tạo nhạc.",
+        "video_timing_note": "Mốc thời gian là ước tính. Sửa số giây hoặc câu chữ rồi bấm Tạo video lời bài hát để áp dụng.",
+        "video_start": "Bắt đầu (giây)",
+        "video_caption": "Lời hiện trên video",
+        "video_rendering": "Đang dựng video lời bài hát…",
+        "video_error": "Không dựng được video lời bài hát",
+        "video_preview": "Video lời bài hát",
+        "video_download": "⬇️ Tải MP4",
         "status_generating_audio": "Đang tạo bài hát bằng dịch vụ đã chọn...",
         "audio_ready": "✅ Đã tạo và lưu bài hát.",
         "audio_error": "Không tạo được bài hát:",
@@ -304,7 +344,26 @@ translations = {
         "error_cooldown": "⏳ Anti-spam protection: Please wait {sec} seconds before generating again.",
         "step2_title": "🎸 2. Generate a song in the app",
         "step2_guide": "The app uses the generated title, style, and lyrics to create vocals here.",
-        "btn_generate_audio": "🎵 Generate with selected service",
+        "btn_generate_audio": "🎵 Generate music",
+        "btn_generate_video": "🎬 Create lyric video",
+        "video_settings": "Lyric video settings",
+        "video_timing": "Edit lyrics and timing",
+        "video_background_mode": "Background type",
+        "video_background_modes": {"simple": "Theme or image", "ai": "AI video · LTX-2.5 (free quota)"},
+        "video_prompt": "Describe the background scene",
+        "video_ai_note": "LTX-2.5 creates a background clip about two seconds long, which loops for the song. The scene description is sent to a public Hugging Face Space. Shared GPU access has a free quota and may have a queue.",
+        "video_ai_rendering": "Generating the background clip…",
+        "video_background": "Background image (optional)",
+        "video_theme": "Color theme",
+        "video_themes": {"night": "Midnight", "plum": "Plum", "forest": "Forest"},
+        "video_reuse": "The video uses the existing song, with no additional music generation fee.",
+        "video_timing_note": "Timing is estimated. Edit the seconds or lyrics and click Create lyric video again to apply changes.",
+        "video_start": "Start time (seconds)",
+        "video_caption": "On-screen lyrics",
+        "video_rendering": "Rendering the lyric video…",
+        "video_error": "Could not render the lyric video",
+        "video_preview": "Lyric video",
+        "video_download": "⬇️ Download MP4",
         "status_generating_audio": "Generating with the selected service...",
         "audio_ready": "✅ Song generated and saved.",
         "audio_error": "Could not generate the song:",
@@ -453,6 +512,14 @@ def get_runtime_key(key_name):
     if session_key and str(session_key).strip():
         return str(session_key).strip()
     return get_secret_safe(key_name)
+
+
+def reset_generated_media():
+    st.session_state["generated_audio_path"] = None
+    st.session_state.pop("generated_audio_mime", None)
+    st.session_state.pop("video_timing", None)
+    st.session_state.pop("generated_video", None)
+    st.session_state.pop("video_ai_clip", None)
 
 
 def get_demo_song(language):
@@ -954,8 +1021,7 @@ custom_prompt = st.text_input(
 
 if st.button(t["demo_sample_button"], use_container_width=True):
     st.session_state["song_data"] = get_demo_song(st.session_state["lang"])
-    st.session_state["generated_audio_path"] = None
-    st.session_state["generated_audio_mime"] = None
+    reset_generated_media()
     st.rerun()
 
 # --- 9. ステップ1：Geminiで要約と歌詞を作成 ---
@@ -1061,7 +1127,7 @@ if st.button(t["btn_generate"], type="primary", use_container_width=True):
                     else:
                         summary_val = before_tags.strip()
 
-                st.session_state["generated_audio_path"] = None
+                reset_generated_media()
                 st.session_state["song_data"] = {
                     "title": title_val.strip(),
                     "summary": summary_val.strip(),
@@ -1084,6 +1150,20 @@ if st.session_state["song_data"] is not None:
         st.info(t["demo_sample_caption"])
     elif data.get("gemini_model"):
         st.caption(t["gemini_model_used"].format(model=data["gemini_model"]))
+
+    with st.expander(t["video_settings"]):
+        video_theme = st.selectbox(t["video_theme"], list(THEMES), format_func=t["video_themes"].get)
+        video_mode = st.radio(t["video_background_mode"], ["simple", "ai"], format_func=t["video_background_modes"].get)
+        video_background = None
+        video_prompt = ""
+        if video_mode == "ai":
+            video_prompt = st.text_area(t["video_prompt"], max_chars=700, key="video_prompt").strip()
+            st.caption(t["video_ai_note"] + " [LTX-2.5](https://huggingface.co/spaces/Lightricks/LTX-2.5)")
+        else:
+            video_background = st.file_uploader(
+                t["video_background"], type=["jpg", "jpeg", "png", "webp"],
+                key="video_background", max_upload_size=12,
+            )
 
     col_s1, col_s2 = st.columns([1, 1])
     with col_s1:
@@ -1143,16 +1223,26 @@ if st.session_state["song_data"] is not None:
         if lyria_lyrics_too_long:
             st.warning(t["lyria_lyrics_limit"])
 
-        if st.button(
-            t["btn_generate_audio"],
-            type="primary",
-            use_container_width=True,
-            disabled=(provider_needs_fal and not fal_key_configured)
+        audio_disabled = (
+            (provider_needs_fal and not fal_key_configured)
             or minimax_lyrics_too_long
             or mureka_lyrics_too_long
             or lyria_lyrics_too_long
-            or (audio_provider == "local_acestep" and not local_api_available),
-        ):
+            or (audio_provider == "local_acestep" and not local_api_available)
+        )
+        audio_path = st.session_state.get("generated_audio_path")
+        has_audio = bool(audio_path and os.path.isfile(audio_path))
+        music_requested = st.button(
+            t["btn_generate_audio"], type="primary", width="stretch", disabled=audio_disabled
+        )
+        video_requested = st.button(
+            t["btn_generate_video"], width="stretch",
+            disabled=(audio_disabled and not has_audio) or (video_mode == "ai" and not video_prompt),
+        )
+        if has_audio:
+            st.caption(t["video_reuse"])
+
+        if music_requested or (video_requested and not has_audio):
             with st.spinner(t["status_generating_audio"]):
                 try:
                     if audio_provider == "local_acestep":
@@ -1175,12 +1265,13 @@ if st.session_state["song_data"] is not None:
                     safe_title = re.sub(r"[^\w-]+", "_", data["title"], flags=re.UNICODE).strip("_-")[:60]
                     if not safe_title:
                         safe_title = "knowledge_song"
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
                     filename = f"{safe_title}_{timestamp}{audio_extension}"
                     os.makedirs("saved_songs", exist_ok=True)
                     generated_path = os.path.join("saved_songs", filename)
                     with open(generated_path, "wb") as audio_file:
                         audio_file.write(audio_bytes)
+                    reset_generated_media()
                     st.session_state["generated_audio_path"] = generated_path
                     st.session_state["generated_audio_mime"] = audio_mime
                     st.success(t["audio_ready"])
@@ -1203,7 +1294,8 @@ if st.session_state["song_data"] is not None:
         st.code(data["lyrics"], language="text")
 
     generated_path = st.session_state.get("generated_audio_path")
-    if generated_path and os.path.isfile(generated_path):
+    has_audio = bool(generated_path and os.path.isfile(generated_path))
+    if has_audio:
         with open(generated_path, "rb") as generated_file:
             generated_audio = generated_file.read()
         generated_mime = st.session_state.get("generated_audio_mime") or (
@@ -1217,6 +1309,72 @@ if st.session_state["song_data"] is not None:
             mime=generated_mime,
             key="generated_song_download",
             use_container_width=True,
+        )
+
+    timing = st.session_state.get("video_timing") if has_audio else None
+    if timing:
+        with st.expander(t["video_timing"]):
+            st.caption(t["video_timing_note"])
+            cues = st.data_editor(
+                timing["cues"],
+                column_config={
+                    "start": st.column_config.NumberColumn(
+                        t["video_start"], min_value=0, max_value=timing["duration"], step=0.01, required=True,
+                    ),
+                    "lyrics": st.column_config.TextColumn(t["video_caption"], width="large", required=True),
+                },
+                key=f"video_timing:{generated_path}",
+                hide_index=True,
+                width="stretch",
+            )
+
+    if video_requested and has_audio:
+        try:
+            new_timing = timing is None
+            if new_timing:
+                duration = audio_duration(generated_path)
+                cues = estimate_cues(data["lyrics"], duration)
+                timing = {"duration": duration, "cues": cues}
+                st.session_state["video_timing"] = timing
+
+            background_clip = None
+            if video_mode == "ai":
+                cached_clip = st.session_state.get("video_ai_clip", {})
+                if cached_clip.get("prompt") == video_prompt:
+                    background_clip = cached_clip["data"]
+                else:
+                    with st.spinner(t["video_ai_rendering"]):
+                        background_clip = generate_background(video_prompt)
+                    st.session_state["video_ai_clip"] = {"prompt": video_prompt, "data": background_clip}
+
+            with st.spinner(t["video_rendering"]):
+                if video_background:
+                    with Image.open(video_background) as background:
+                        background.thumbnail((1920, 1080))
+                        video_bytes = render_lyric_video(
+                            generated_path, data["title"], timing["duration"], cues, video_theme, image=background,
+                        )
+                else:
+                    video_bytes = render_lyric_video(
+                        generated_path, data["title"], timing["duration"], cues, video_theme, background_video=background_clip,
+                    )
+            st.session_state["generated_video"] = video_bytes
+            if new_timing:
+                st.rerun()
+        except Exception as exc:
+            st.error(f"{t['video_error']} · {exc}")
+
+    video_bytes = st.session_state.get("generated_video") if has_audio else None
+    if video_bytes:
+        st.markdown(f"#### {t['video_preview']}")
+        st.video(video_bytes, format="video/mp4")
+        st.download_button(
+            t["video_download"],
+            data=video_bytes,
+            file_name=f"{os.path.splitext(os.path.basename(generated_path))[0]}_lyrics.mp4",
+            mime="video/mp4",
+            key="generated_video_download",
+            width="stretch",
         )
 
 # --- 11. ステップ3：Webプレーヤーと曲の保存 ---
