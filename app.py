@@ -8,6 +8,7 @@ import requests
 import socket
 from datetime import datetime
 from io import BytesIO
+from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
 import streamlit as st
@@ -16,6 +17,15 @@ from pypdf import PdfReader
 import docx
 from PIL import Image, ImageOps
 from google import genai
+from song_library import (
+    AUDIO_MIMES,
+    delete_song_permanently,
+    move_to_trash,
+    restore_song,
+    save_song,
+    saved_songs,
+    trashed_songs,
+)
 
 GEMINI_MODELS = ("gemini-4-hydrogen", "gemini-3.5-flash-lite")
 MORE_GENRES = {
@@ -128,6 +138,18 @@ translations = {
         "step3_title": "🎧 3. Webプレーヤーと曲のライブラリ",
         "upload_mp3_label": "再生・保存するMP3/WAVファイルをアップロード:",
         "saved_songs_label": "📂 保存済みの曲から選択:",
+        "empty_library": "保存済みの曲はありません。",
+        "move_song_to_trash": "ごみ箱に移動",
+        "trash_label": "🗑️ ごみ箱",
+        "empty_trash": "ごみ箱は空です。",
+        "select_trashed_song": "ごみ箱から曲を選択",
+        "restore_song": "曲を復元",
+        "permanent_delete_song": "完全に削除",
+        "confirm_delete_song": "この曲を完全に削除する",
+        "song_trashed": "「{name}」をごみ箱に移動しました。",
+        "song_restored": "「{name}」をライブラリに復元しました。",
+        "song_deleted": "「{name}」を完全に削除しました。",
+        "library_action_error": "曲を操作できませんでした。ファイルの状態を確認してください。",
         "feedback_title": "💬 ご意見・フィードバック",
         "feedback_rate": "アプリの評価:",
         "feedback_input": "改善点やご感想をお聞かせください:",
@@ -247,6 +269,18 @@ translations = {
         "step3_title": "🎧 3. Trình phát nhạc và thư viện trên Web",
         "upload_mp3_label": "Tải lên file MP3/WAV để phát và lưu trong thư viện:",
         "saved_songs_label": "📂 Hoặc mở lại các bài hát đã lưu trên Web:",
+        "empty_library": "Thư viện chưa có bài hát.",
+        "move_song_to_trash": "Chuyển vào Thùng rác",
+        "trash_label": "🗑️ Thùng rác",
+        "empty_trash": "Thùng rác trống.",
+        "select_trashed_song": "Chọn bài trong Thùng rác",
+        "restore_song": "Khôi phục bài hát",
+        "permanent_delete_song": "Xóa vĩnh viễn",
+        "confirm_delete_song": "Xác nhận xóa vĩnh viễn bài này",
+        "song_trashed": "Đã chuyển “{name}” vào Thùng rác.",
+        "song_restored": "Đã khôi phục “{name}” vào thư viện.",
+        "song_deleted": "Đã xóa vĩnh viễn “{name}”.",
+        "library_action_error": "Không thể thao tác với bài hát. Hãy kiểm tra lại trạng thái của tệp.",
         "feedback_title": "💬 Góp ý cải thiện Web",
         "feedback_rate": "Đánh giá của bạn:",
         "feedback_input": "Nhập ý kiến đóng góp của bạn tại đây:",
@@ -366,6 +400,18 @@ translations = {
         "step3_title": "🎧 3. Web audio player and library",
         "upload_mp3_label": "Upload an MP3/WAV file to play and save it in the library:",
         "saved_songs_label": "📂 Or select from previously saved songs:",
+        "empty_library": "There are no saved songs.",
+        "move_song_to_trash": "Move to Trash",
+        "trash_label": "🗑️ Trash",
+        "empty_trash": "Trash is empty.",
+        "select_trashed_song": "Select a song in Trash",
+        "restore_song": "Restore song",
+        "permanent_delete_song": "Delete permanently",
+        "confirm_delete_song": "Confirm permanent deletion of this song",
+        "song_trashed": "Moved “{name}” to Trash.",
+        "song_restored": "Restored “{name}” to the library.",
+        "song_deleted": "Permanently deleted “{name}”.",
+        "library_action_error": "Could not update the song. Check whether the file is still available.",
         "feedback_title": "💬 Feedback & Suggestions",
         "feedback_rate": "Rate our web app:",
         "feedback_input": "Share your ideas to help us improve:",
@@ -484,6 +530,35 @@ def get_runtime_key(key_name):
 def reset_generated_audio():
     st.session_state["generated_audio_path"] = None
     st.session_state.pop("generated_audio_mime", None)
+
+
+def save_audio_upload():
+    upload = st.session_state.get("library_audio_upload")
+    st.session_state.pop("uploaded_song_path", None)
+    st.session_state.pop("audio_upload_error", None)
+    if upload is not None:
+        try:
+            st.session_state["uploaded_song_path"] = save_song(upload.name, upload.getbuffer())
+        except (OSError, ValueError):
+            st.session_state["audio_upload_error"] = True
+
+
+def trash_option_label(song):
+    try:
+        deleted_at = datetime.strptime(song.parent.name[:22], "%Y%m%d_%H%M%S_%f")
+    except ValueError:
+        return song.name
+    return f"{song.name} · {deleted_at.isoformat(sep=' ', timespec='milliseconds')}"
+
+
+def apply_song_action(action, song, message):
+    try:
+        updated = action(song)
+    except OSError:
+        st.warning(t["library_action_error"])
+    else:
+        st.session_state["library_song_notice"] = (message, (updated or song).name)
+        st.rerun()
 
 
 def get_demo_song(language):
@@ -1215,20 +1290,14 @@ if st.session_state["song_data"] is not None:
                         safe_title = "knowledge_song"
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
                     filename = f"{safe_title}_{timestamp}{audio_extension}"
-                    os.makedirs("saved_songs", exist_ok=True)
-                    generated_path = os.path.join("saved_songs", filename)
-                    with open(generated_path, "wb") as audio_file:
-                        audio_file.write(audio_bytes)
-                    st.session_state["generated_audio_path"] = generated_path
+                    generated_path = save_song(filename, audio_bytes)
+                    st.session_state["generated_audio_path"] = str(generated_path)
                     st.session_state["generated_audio_mime"] = audio_mime
                     st.success(t["audio_ready"])
                 except Exception as exc:
                     error_detail = str(exc)
                     st.error(f"{t['audio_error']} {error_detail}")
-                    if os.path.isdir("saved_songs") and any(
-                        name.lower().endswith((".mp3", ".wav"))
-                        for name in os.listdir("saved_songs")
-                    ):
+                    if saved_songs():
                         st.caption(t["audio_fallback_hint"])
                     lower_error = error_detail.lower()
                     if "fal_key" in lower_error or "401" in lower_error or "403" in lower_error:
@@ -1241,59 +1310,92 @@ if st.session_state["song_data"] is not None:
         st.code(data["lyrics"], language="text")
 
     generated_path = st.session_state.get("generated_audio_path")
-    if generated_path and os.path.isfile(generated_path):
-        with open(generated_path, "rb") as generated_file:
-            generated_audio = generated_file.read()
-        generated_mime = st.session_state.get("generated_audio_mime") or (
-            "audio/wav" if generated_path.lower().endswith(".wav") else "audio/mpeg"
-        )
-        st.audio(generated_audio, format=generated_mime)
-        st.download_button(
-            label=f"{t['download_label']} {os.path.basename(generated_path)}",
-            data=generated_audio,
-            file_name=os.path.basename(generated_path),
-            mime=generated_mime,
-            key="generated_song_download",
-            use_container_width=True,
-        )
+    if generated_path:
+        song_path = Path(generated_path)
+        try:
+            generated_audio = song_path.read_bytes()
+        except FileNotFoundError:
+            reset_generated_audio()
+        else:
+            generated_mime = st.session_state.get("generated_audio_mime") or AUDIO_MIMES[song_path.suffix.lower()]
+            st.audio(generated_audio, format=generated_mime)
+            st.download_button(
+                label=f"{t['download_label']} {song_path.name}",
+                data=generated_audio,
+                file_name=song_path.name,
+                mime=generated_mime,
+                key="generated_song_download",
+                use_container_width=True,
+            )
 
 # --- 11. ステップ3：Webプレーヤーと曲の保存 ---
 st.markdown("---")
 st.subheader(t["step3_title"])
 
-os.makedirs("saved_songs", exist_ok=True)
+notice = st.session_state.pop("library_song_notice", None)
+if notice:
+    message, name = notice
+    st.success(t[message].format(name=name))
 
-uploaded_mp3 = st.file_uploader(
+st.file_uploader(
     t["upload_mp3_label"],
-    type=["mp3", "wav"]
+    type=["mp3", "wav"],
+    key="library_audio_upload",
+    on_change=save_audio_upload,
 )
+if st.session_state.get("audio_upload_error"):
+    st.warning(t["library_action_error"])
 
-if uploaded_mp3 is not None:
-    save_path = os.path.join("saved_songs", uploaded_mp3.name)
-    with open(save_path, "wb") as f:
-        f.write(uploaded_mp3.getbuffer())
-    st.success(f"🎵 {t['playing_label']} **{uploaded_mp3.name}**")
-    upload_mime = "audio/wav" if uploaded_mp3.name.lower().endswith(".wav") else "audio/mpeg"
-    st.audio(uploaded_mp3, format=upload_mime)
+active_upload = st.session_state.get("uploaded_song_path")
+if active_upload:
+    try:
+        uploaded_audio = active_upload.read_bytes()
+    except FileNotFoundError:
+        st.session_state.pop("uploaded_song_path", None)
+    else:
+        st.success(f"🎵 {t['playing_label']} **{active_upload.name}**")
+        st.audio(uploaded_audio, format=AUDIO_MIMES[active_upload.suffix.lower()])
 
-saved_files = sorted(
-    [f for f in os.listdir("saved_songs") if f.endswith((".mp3", ".wav"))],
-    reverse=True
-)
-
+saved_files = saved_songs()
 if saved_files:
-    selected_song = st.selectbox(t["saved_songs_label"], saved_files)
-    song_full_path = os.path.join("saved_songs", selected_song)
-    with open(song_full_path, "rb") as sf:
-        song_bytes = sf.read()
-    song_mime = "audio/wav" if selected_song.lower().endswith(".wav") else "audio/mpeg"
-    st.audio(song_bytes, format=song_mime)
-    st.download_button(
-        label=f"{t['download_label']} {selected_song}",
-        data=song_bytes,
-        file_name=selected_song,
-        mime=song_mime,
-        key="library_song_download",
-        use_container_width=True
-    )
+    selected_song = st.selectbox(t["saved_songs_label"], saved_files, format_func=lambda song: song.name)
+    try:
+        song_bytes = selected_song.read_bytes()
+    except FileNotFoundError:
+        st.warning(t["library_action_error"])
+    else:
+        song_mime = AUDIO_MIMES[selected_song.suffix.lower()]
+        st.audio(song_bytes, format=song_mime)
+        download_col, trash_col = st.columns(2)
+        with download_col:
+            st.download_button(
+                label=t["download_label"],
+                data=song_bytes,
+                file_name=selected_song.name,
+                mime=song_mime,
+                key="library_song_download",
+                width="stretch",
+            )
+        with trash_col:
+            if st.button(t["move_song_to_trash"], key=f"move_library_song:{selected_song.name}", width="stretch"):
+                apply_song_action(move_to_trash, selected_song, "song_trashed")
+else:
+    st.caption(t["empty_library"])
+
+with st.expander(t["trash_label"]):
+    deleted_files = trashed_songs()
+    if deleted_files:
+        deleted_song = st.selectbox(t["select_trashed_song"], deleted_files, format_func=trash_option_label)
+        restore_col, delete_col = st.columns(2)
+        with restore_col:
+            if st.button(t["restore_song"], key=f"restore_library_song:{deleted_song.parent.name}", width="stretch"):
+                apply_song_action(restore_song, deleted_song, "song_restored")
+        with delete_col:
+            with st.popover(t["permanent_delete_song"], width="stretch"):
+                st.warning(t["confirm_delete_song"])
+                st.caption(deleted_song.name)
+                if st.button(t["permanent_delete_song"], key=f"delete_song:{deleted_song.parent.name}", type="primary"):
+                    apply_song_action(delete_song_permanently, deleted_song, "song_deleted")
+    else:
+        st.caption(t["empty_trash"])
 
