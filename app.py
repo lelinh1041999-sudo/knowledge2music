@@ -109,11 +109,11 @@ translations = {
         "audio_fallback_hint": "保存済みの曲は、下のライブラリから再生できます。",
         "audio_provider_label": "🎛️ 音楽生成サービスを選択",
         "audio_provider_options": {
-            "fal_ace_step": "ACE-Step（fal.ai・低価格）",
-            "fal_minimax": "MiniMax Music 3.0（fal.ai）",
-            "fal_mureka_v8": "Mureka V8（fal.ai・歌詞を指定）",
-            "fal_lyria_35": "Google Lyria 3.5（fal.ai・フル曲）",
-            "local_acestep": "ACE-Step（自分のPC・ローカルAPI）"
+            "fal_ace_step": "ACE-Step（fal.ai）· 約$0.012/60秒",
+            "fal_minimax": "MiniMax Music 3.0（fal.ai）· 約$0.12/60秒",
+            "fal_mureka_v8": "Mureka V8（fal.ai）· $0.045/曲",
+            "fal_lyria_35": "Google Lyria 3.5（fal.ai）· $0.10/回",
+            "local_acestep": "ACE-Step 1.5（自分のPC）· API料金 $0"
         },
         "audio_provider_notes": {
             "fal_ace_step": "長所：fal.aiで手軽に使え、現在約$0.0002/秒（60秒で約$0.012）。短所：歌声の明瞭さや歌詞の再現は曲によって差があります。FAL_KEYとクレジットが必要で、他のfal.aiモデルと残高を共有します。",
@@ -240,11 +240,11 @@ translations = {
         "audio_fallback_hint": "Bạn vẫn có thể phát các bài đã lưu trong thư viện bên dưới.",
         "audio_provider_label": "🎛️ Chọn dịch vụ tạo nhạc",
         "audio_provider_options": {
-            "fal_ace_step": "ACE-Step (fal.ai · chi phí thấp)",
-            "fal_minimax": "MiniMax Music 3.0 (fal.ai)",
-            "fal_mureka_v8": "Mureka V8 (fal.ai · nhập lời riêng)",
-            "fal_lyria_35": "Google Lyria 3.5 (fal.ai · bài hoàn chỉnh)",
-            "local_acestep": "ACE-Step (máy cá nhân · Local API)"
+            "fal_ace_step": "ACE-Step (fal.ai) · khoảng $0.012/60 giây",
+            "fal_minimax": "MiniMax Music 3.0 (fal.ai) · khoảng $0.12/60 giây",
+            "fal_mureka_v8": "Mureka V8 (fal.ai) · $0.045/bài",
+            "fal_lyria_35": "Google Lyria 3.5 (fal.ai) · $0.10/lần",
+            "local_acestep": "ACE-Step 1.5 (máy cá nhân) · phí API $0"
         },
         "audio_provider_notes": {
             "fal_ace_step": "Ưu điểm: dễ dùng qua fal.ai, giá hiện khoảng $0.0002/giây (60 giây khoảng $0.012). Hạn chế: độ rõ của giọng hát và mức giữ nguyên lời có thể khác nhau giữa các bài. Cần FAL_KEY và credit; dùng chung số dư với các model fal.ai khác.",
@@ -371,11 +371,11 @@ translations = {
         "audio_fallback_hint": "You can still play saved songs from the library below.",
         "audio_provider_label": "🎛️ Choose a music service",
         "audio_provider_options": {
-            "fal_ace_step": "ACE-Step (fal.ai · low cost)",
-            "fal_minimax": "MiniMax Music 3.0 (fal.ai)",
-            "fal_mureka_v8": "Mureka V8 (fal.ai · custom lyrics)",
-            "fal_lyria_35": "Google Lyria 3.5 (fal.ai · full song)",
-            "local_acestep": "ACE-Step (your computer · Local API)"
+            "fal_ace_step": "ACE-Step (fal.ai) · ~$0.012/60 sec",
+            "fal_minimax": "MiniMax Music 3.0 (fal.ai) · ~$0.12/60 sec",
+            "fal_mureka_v8": "Mureka V8 (fal.ai) · $0.045/song",
+            "fal_lyria_35": "Google Lyria 3.5 (fal.ai) · $0.10/generation",
+            "local_acestep": "ACE-Step 1.5 (your computer) · $0 API fee"
         },
         "audio_provider_notes": {
             "fal_ace_step": "Pros: easy to access through fal.ai and currently about $0.0002/sec ($0.012 for 60 sec). Cons: vocal clarity and lyric fidelity can vary by song. Requires FAL_KEY and credits shared with the other fal.ai models.",
