@@ -30,6 +30,12 @@ from song_library import (
 
 GEMINI_MODELS = ("gemini-4-hydrogen", "gemini-3.5-flash-lite")
 MORE_GENRES = {
+    "VinaHouse / Vietnamese Club Dance, driving four-on-the-floor kick, energetic bass, melodic synth hooks": ("VinaHouse／ベトナム・クラブダンス", "VinaHouse / Nhạc sàn Việt"),
+    "V-Pop EDM Remix, catchy vocal hooks, punchy dance drums, melodic electronic drops": ("V-Pop EDMリミックス", "V-Pop remix / EDM Việt"),
+    "Vietnamese Folk Electronic Dance, bamboo flute and plucked zither, modern electronic bass and dance drums": ("ベトナム民族楽器×EDM", "Dân gian điện tử / Sáo, đàn tranh kết hợp EDM"),
+    "East Asian Historical Fantasy EDM, bamboo flute, plucked zither, pentatonic melodies, electronic dance drops": ("古風・幻想系EDMリミックス", "Cổ phong remix / Giai điệu Á Đông kết hợp EDM"),
+    "Melodic Deep House Remix, warm bass, atmospheric synths, flowing vocals, relaxed dance groove": ("メロディック・ディープハウス・リミックス", "Deep House remix / Êm, bass ấm"),
+    "Dance Pop Ballad Remix, emotional melodic verses, uplifting chorus, steady electronic dance beat": ("ポップバラード・ダンスリミックス", "Ballad remix / Lời tình cảm, beat sôi động"),
     "J-Rock / Anime Rock": ("Jロック／アニメロック", "J-Rock / Rock anime"),
     "K-Pop / Dance Pop": ("K-Pop／ダンスポップ", "K-Pop / Dance Pop"),
     "V-Pop": ("V-Pop（ベトナムのポップス）", "V-Pop"),
@@ -1084,7 +1090,7 @@ with col_p1:
     genre_options = dict(t["genre_options"])
     genre_language_index = {"JP": 0, "VI": 1}.get(st.session_state["lang"])
     genre_options.update({
-        name: labels[genre_language_index] if genre_language_index is not None else name
+        name: labels[genre_language_index] if genre_language_index is not None else name.split(",", 1)[0]
         for name, labels in MORE_GENRES.items()
     })
     genre_options["custom"] = t["custom_genre"]
