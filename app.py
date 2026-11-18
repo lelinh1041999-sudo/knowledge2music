@@ -1168,6 +1168,8 @@ if st.button(t["btn_generate"], type="primary", use_container_width=True):
                 system_instruction = f"""
                 You are an expert educational songwriter writing a complete, memorable song for an AI music generator.
                 Output Language for Summary, Title, and Lyrics: {lang_name}.
+                Write the title, summary and lyrics in natural {lang_name}. For Vietnamese, ALWAYS use full diacritics
+                (e.g. "kết nối", never "ket noi"); ASCII-only Vietnamese is not acceptable.
                 Music Genre: {genre}.
                 Mood/Tempo: {vibe}.
                 Vocal Style: {vocal_style}.
