@@ -117,6 +117,7 @@ translations = {
         "audio_fallback_hint": "保存済みの曲は、下のライブラリから再生できます。",
         "audio_provider_label": "🎛️ 音楽生成サービスを選択",
         "audio_provider_options": {
+            "google_lyria_35": 'Google Lyria 3.5（Google直接）· $0.08/曲',
             "fal_ace_step": "ACE-Step（fal.ai）· 約$0.012/60秒",
             "fal_minimax": "MiniMax Music 3.0（fal.ai）· 約$0.12/60秒",
             "fal_mureka_v8": "Mureka V8（fal.ai）· $0.045/曲",
@@ -124,6 +125,7 @@ translations = {
             "local_acestep": "ACE-Step 1.5（自分のPC）· API料金 $0"
         },
         "audio_provider_notes": {
+            "google_lyria_35": '長所：Gemini APIキーを共用し、Googleに直接課金（$0.08/曲）。fal.ai残高は不要です。短所：有料APIの設定が必要。歌詞・長さの完全一致は保証されず、ベトナム語の発音は未確認です。対象クレジットの適用はGoogleの請求条件によります。',
             "fal_ace_step": "長所：fal.aiで手軽に使え、現在約$0.0002/秒（60秒で約$0.012）。短所：歌声の明瞭さや歌詞の再現は曲によって差があります。FAL_KEYとクレジットが必要で、他のfal.aiモデルと残高を共有します。",
             "fal_minimax": "長所：歌詞とスタイルを個別に指定でき、生成は最長60秒。料金は約$0.002/秒（60秒で約$0.12）。短所：長い歌詞は最後まで歌われないことがあり、ベトナム語の発音は未確認です。FAL_KEYとクレジットが必要です。",
             "fal_mureka_v8": "長所：歌詞を専用入力欄で指定でき、最大5,000文字。短所：ベトナム語は公式対応言語一覧にありません。歌詞を入力した場合は現在$0.045/曲です。FAL_KEYとクレジットが必要で、共有アプリでは設定アカウントに請求されます。",
@@ -253,6 +255,7 @@ translations = {
         "audio_fallback_hint": "Bạn vẫn có thể phát các bài đã lưu trong thư viện bên dưới.",
         "audio_provider_label": "🎛️ Chọn dịch vụ tạo nhạc",
         "audio_provider_options": {
+            "google_lyria_35": 'Google Lyria 3.5 (Google trực tiếp) · $0.08/bài',
             "fal_ace_step": "ACE-Step (fal.ai) · khoảng $0.012/60 giây",
             "fal_minimax": "MiniMax Music 3.0 (fal.ai) · khoảng $0.12/60 giây",
             "fal_mureka_v8": "Mureka V8 (fal.ai) · $0.045/bài",
@@ -260,6 +263,7 @@ translations = {
             "local_acestep": "ACE-Step 1.5 (máy cá nhân) · phí API $0"
         },
         "audio_provider_notes": {
+            "google_lyria_35": 'Ưu điểm: dùng chung Gemini API key, thanh toán trực tiếp Google ($0.08/bài), không cần số dư fal.ai. Hạn chế: cần bật thanh toán API; không đảm bảo giữ nguyên lời hoặc độ dài; phát âm tiếng Việt chưa kiểm chứng. Tín dụng áp dụng theo điều kiện thanh toán Google.',
             "fal_ace_step": "Ưu điểm: dễ dùng qua fal.ai, giá hiện khoảng $0.0002/giây (60 giây khoảng $0.012). Hạn chế: độ rõ của giọng hát và mức giữ nguyên lời có thể khác nhau giữa các bài. Cần FAL_KEY và credit; dùng chung số dư với các model fal.ai khác.",
             "fal_minimax": "Ưu điểm: có ô nhập riêng cho lời và phong cách, tạo tối đa 60 giây. Giá khoảng $0.002/giây ($0.12 nếu đủ 60 giây). Hạn chế: lời dài có thể không được hát hết và độ rõ tiếng Việt chưa được kiểm chứng. Cần FAL_KEY và credit.",
             "fal_mureka_v8": "Ưu điểm: có ô nhập lời riêng, hỗ trợ tối đa 5.000 ký tự. Hạn chế: tiếng Việt không có trong danh sách ngôn ngữ được công bố, nên chưa đảm bảo phát âm. Khi gửi lời, giá hiện tại là $0.045/bài. Cần FAL_KEY và credit; nếu dùng app chung, phí tính vào tài khoản đã cấu hình.",
@@ -389,6 +393,7 @@ translations = {
         "audio_fallback_hint": "You can still play saved songs from the library below.",
         "audio_provider_label": "🎛️ Choose a music service",
         "audio_provider_options": {
+            "google_lyria_35": 'Google Lyria 3.5 (Google direct) · $0.08/song',
             "fal_ace_step": "ACE-Step (fal.ai) · ~$0.012/60 sec",
             "fal_minimax": "MiniMax Music 3.0 (fal.ai) · ~$0.12/60 sec",
             "fal_mureka_v8": "Mureka V8 (fal.ai) · $0.045/song",
@@ -396,6 +401,7 @@ translations = {
             "local_acestep": "ACE-Step 1.5 (your computer) · $0 API fee"
         },
         "audio_provider_notes": {
+            "google_lyria_35": 'Pros: uses your Gemini API key and Google billing ($0.08/song), without fal.ai credits. Cons: requires paid API access; exact lyrics and duration are not guaranteed; Vietnamese pronunciation is unverified. Eligible credits depend on Google billing terms.',
             "fal_ace_step": "Pros: easy to access through fal.ai and currently about $0.0002/sec ($0.012 for 60 sec). Cons: vocal clarity and lyric fidelity can vary by song. Requires FAL_KEY and credits shared with the other fal.ai models.",
             "fal_minimax": "Pros: separate lyrics and style inputs, with up to 60 seconds of audio. About $0.002/second ($0.12 for 60 seconds). Cons: long lyrics may be cut short, and Vietnamese pronunciation has yet to be verified. Requires FAL_KEY and credits.",
             "fal_mureka_v8": "Pros: separate lyrics input, up to 5,000 characters. Cons: Vietnamese is not in the published language list, so pronunciation is not assured. Current price with supplied lyrics is $0.045/song. Requires FAL_KEY and fal.ai credits; shared apps charge the configured account.",
@@ -633,6 +639,36 @@ def fal_response_error(response):
     if not detail:
         detail = "No additional error details were returned."
     return f"fal.ai returned HTTP {response.status_code}: {detail}"
+
+
+def generate_audio_with_google(song_data):
+    """Generate one song through Google directly; never retry a paid request."""
+    api_key = get_runtime_key("GEMINI_API_KEY")
+    if not api_key or not str(api_key).strip():
+        raise RuntimeError("GEMINI_API_KEY is required for Google Lyria.")
+    lyrics = str(song_data["lyrics"])
+    if len(lyrics) > 5000:
+        raise RuntimeError("Lyria supports up to 5,000 lyric characters in this app.")
+    prompt = (
+        "Create a complete song about 60 seconds long in the language of the supplied lyrics. "
+        "Sing the exact lyrics in their original order without translating or adding words. "
+        f"Title: {song_data['title']}. Style: {song_data['tags']}.\nLyrics:\n{lyrics}"
+    )
+    with genai.Client(api_key=str(api_key).strip(), http_options={"retry_options": {"attempts": 1}}) as client:
+        result = client.interactions.create(
+            model="lyria-3.5", input=prompt, store=False, timeout=300,
+        )
+    audio = result.output_audio
+    if not audio or not audio.data:
+        raise RuntimeError("Google Lyria returned no audio. The request may have been blocked.")
+    content = base64.b64decode(audio.data, validate=True)
+    if not content:
+        raise RuntimeError("Google Lyria returned empty audio.")
+    mime = getattr(audio, "mime_type", None) or "audio/mpeg"
+    extension = {"audio/mpeg": ".mp3", "audio/mp3": ".mp3", "audio/wav": ".wav", "audio/x-wav": ".wav"}.get(mime)
+    if not extension:
+        raise RuntimeError("Google Lyria returned an unsupported audio format.")
+    return content, mime, extension
 
 
 def generate_audio_with_fal(song_data, model="fal_ace_step", duration=60):
@@ -1262,6 +1298,8 @@ if st.session_state["song_data"] is not None:
                 f"[{t['music_model_terms_link']}](https://fal.ai/models/{fal_endpoint}) · "
                 f"[{t['music_fal_terms_link']}](https://fal.ai/legal/terms-of-service)"
             )
+        elif audio_provider == "google_lyria_35":
+            st.caption(f"[{t['music_model_terms_link']}](https://ai.google.dev/gemini-api/docs/music-generation)")
         else:
             st.caption(f"[{t['music_model_terms_link']}](https://huggingface.co/ACE-Step/Ace-Step1.5)")
         if st.session_state["lang"] == "VI":
@@ -1276,7 +1314,7 @@ if st.session_state["song_data"] is not None:
             audio_provider == "fal_mureka_v8" and len(data["lyrics"]) > 5000
         )
         lyria_lyrics_too_long = (
-            audio_provider == "fal_lyria_35" and len(data["lyrics"]) > 5000
+            audio_provider in {"fal_lyria_35", "google_lyria_35"} and len(data["lyrics"]) > 5000
         )
 
         if provider_needs_fal and not fal_key_configured:
@@ -1296,6 +1334,7 @@ if st.session_state["song_data"] is not None:
 
         audio_disabled = (
             not title.strip()
+            or (audio_provider == "google_lyria_35" and not get_runtime_key("GEMINI_API_KEY"))
             or (provider_needs_fal and not fal_key_configured)
             or minimax_lyrics_too_long
             or mureka_lyrics_too_long
@@ -1307,7 +1346,9 @@ if st.session_state["song_data"] is not None:
         ):
             with st.spinner(t["status_generating_audio"]):
                 try:
-                    if audio_provider == "local_acestep":
+                    if audio_provider == "google_lyria_35":
+                        audio_bytes, audio_mime, audio_extension = generate_audio_with_google(data)
+                    elif audio_provider == "local_acestep":
                         vocal_language = {
                             "JP": "ja",
                             "VI": "vi",
@@ -1339,9 +1380,9 @@ if st.session_state["song_data"] is not None:
                     if saved_songs():
                         st.caption(t["audio_fallback_hint"])
                     lower_error = error_detail.lower()
-                    if "fal_key" in lower_error or "401" in lower_error or "403" in lower_error:
+                    if provider_needs_fal and ("fal_key" in lower_error or "401" in lower_error or "403" in lower_error):
                         st.info(t["fal_key_hint"])
-                    elif "credit" in lower_error or "402" in lower_error or "payment" in lower_error:
+                    elif provider_needs_fal and ("credit" in lower_error or "402" in lower_error or "payment" in lower_error):
                         st.info(t["fal_billing_hint"])
 
     with col_s2:
