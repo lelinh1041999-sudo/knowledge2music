@@ -654,7 +654,7 @@ def generate_audio_with_google(song_data):
         "Sing the exact lyrics in their original order without translating or adding words. "
         f"Title: {song_data['title']}. Style: {song_data['tags']}.\nLyrics:\n{lyrics}"
     )
-    with genai.Client(api_key=str(api_key).strip(), http_options={"retry_options": {"attempts": 1}}) as client:
+    with genai.Client(api_key=str(api_key).strip(), http_options={"api_version": "v1beta", "retry_options": {"attempts": 1}}) as client:
         result = client.interactions.create(
             model="lyria-3.5", input=prompt, store=False, timeout=300,
         )
@@ -1236,6 +1236,7 @@ if st.button(t["btn_generate"], type="primary", use_container_width=True):
                 else:
                     if genre.casefold() not in song["tags"].casefold():
                         song["tags"] = f"{genre}, {song['tags']}"
+                    st.session_state.pop("song_title_editor", None)
                     st.session_state["song_data"] = {
                         **{key: song[key] for key in ("title", "summary", "tags", "lyrics")},
                         "is_demo_sample": False,
